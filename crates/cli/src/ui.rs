@@ -280,6 +280,10 @@ fn apply_main_block_slide(f: &mut Frame, app: &mut App, slide: &FrameSlide) {
 }
 
 pub fn render(f: &mut Frame, app: &mut App) {
+    // A 0x0 terminal (pty without a window size) panics ratatui's buffer indexing.
+    if f.area().is_empty() {
+        return;
+    }
     // Re-attach image-expansion state to edited lines before any layout
     // math runs this frame (spec 0099); no-op while the buffer is unchanged.
     app.reconcile_playbook_expanded();

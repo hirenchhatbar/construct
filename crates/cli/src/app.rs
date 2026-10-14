@@ -6111,6 +6111,8 @@ async fn run_with_socket_initial_selection(
             crossterm::event::PushKeyboardEnhancementFlags(
                 crossterm::event::KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
                     | crossterm::event::KeyboardEnhancementFlags::REPORT_EVENT_TYPES
+                    // Shifted symbols arrive as the shifted char (`?`, not `/`+Shift).
+                    | crossterm::event::KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
                     | crossterm::event::KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
             )
         );
@@ -11724,7 +11726,7 @@ impl App {
                     self.playbook_selection_run_on_fork = !matches!(k.kind, KeyEventKind::Release);
                 }
                 if matches!(k.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
-                    self.on_key(k).await;
+                    self.on_key(crate::keymap::normalize_key(k)).await;
                 }
             }
             CtEvent::Mouse(m) => self.on_mouse(m).await,
