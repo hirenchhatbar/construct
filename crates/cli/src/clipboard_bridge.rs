@@ -416,7 +416,7 @@ impl ClipboardBackend for SystemClipboard {
     }
 }
 
-fn expand_home(path: &str) -> String {
+pub(crate) fn expand_home(path: &str) -> String {
     match (path.strip_prefix("~/"), std::env::var_os("HOME")) {
         (Some(rest), Some(home)) => Path::new(&home).join(rest).display().to_string(),
         _ => path.to_string(),

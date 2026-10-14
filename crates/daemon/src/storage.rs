@@ -2939,6 +2939,7 @@ mod memory_tests {
             created_at: chrono::Utc::now(),
             position: 7,
             collapsed: true,
+            cwd: None,
         };
         storage.save_group(&group).unwrap();
         storage.ensure_project_memory(&group.id).unwrap();

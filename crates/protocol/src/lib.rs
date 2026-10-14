@@ -4585,6 +4585,10 @@ pub struct GroupSummary {
     /// only the header is shown. Toggled by `Space` in the TUI.
     #[serde(default)]
     pub collapsed: bool,
+    /// Working directory for sessions created inside this project from the
+    /// TUI. `None` falls back to the client's own cwd.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
 }
 
 /// Product name for the same persisted organizer still stored under the
@@ -4595,6 +4599,8 @@ pub type ProjectSummary = GroupSummary;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectCreateParams {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

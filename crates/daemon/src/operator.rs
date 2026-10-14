@@ -2232,6 +2232,7 @@ mod tests {
             created_at: "2026-06-17T00:00:00Z".parse().expect("timestamp"),
             position,
             collapsed: false,
+            cwd: None,
         }
     }
 

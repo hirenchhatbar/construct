@@ -1971,7 +1971,7 @@ pub(crate) async fn dispatch(
     });
     dispatch_entry!(ipc_method::PROJECT_CREATE, {
         let p = params!(req, ProjectCreateParams);
-        match manager.create_group(p.name).await {
+        match manager.create_group(p.name, p.cwd).await {
             Ok(gid) => ok!(req, &ProjectCreateResult { project_id: gid }),
             Err(e) => Response::err(req.id.clone(), ErrorObject::internal(e.to_string())),
         }

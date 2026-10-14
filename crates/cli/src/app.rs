@@ -1445,6 +1445,11 @@ pub enum PromptIntent {
     /// Second stage of the new-session wizard when the user chooses `project`:
     /// asks for the project's name.
     NewGroupName,
+    /// Third stage after `NewGroupName`: asks for the project's working
+    /// directory, prefilled with the TUI's cwd. Empty means none.
+    NewGroupDir {
+        name: String,
+    },
     /// Second stage of the new-session wizard when the user chooses `operator`:
     /// asks for the operator's name before opening its unsaved editor.
     NewOperatorName,
@@ -2647,7 +2652,7 @@ pub struct App {
     pub image_resize_cache: ImageResizeCache,
     /// Short visual transition when a window explicitly switches to a
     /// different session. Keyed per main-window id so split panes don't
-    /// glitch together.
+    /// dim together.
     pub session_transitions: HashMap<u64, SessionTransition>,
     /// OP-XY feedback link state for the modeline indicator: `None` until
     /// the feedback loop reports (or when no OP-XY profile is enabled — the
@@ -5548,7 +5553,7 @@ fn focus_border_idle_resume() -> Duration {
 /// it slots into the same column as the static state glyph.
 pub const SPINNER_FRAMES: [&str; 8] = ["✦", "✧", "✶", "✷", "✸", "✷", "✶", "✧"];
 /// Duration of the session-switch visual transition.
-pub const SESSION_TRANSITION_MS: u128 = 200;
+pub const SESSION_TRANSITION_MS: u128 = 150;
 /// Maximum number of queued daemon notifications to fold into one event-loop
 /// pass. Keeps terminal redraw fragments from repainting one chunk at a time.
 const MAX_NOTIFICATION_DRAIN: usize = 256;
@@ -10342,6 +10347,35 @@ impl App {
         self.sync_active_window_selection();
     }
 
+    /// Jump the selection to the next (`delta > 0`) or previous project
+    /// header in the materialized list, wrapping at the ends. Backward from
+    /// inside a project lands on that project's own header first. No-op
+    /// when the list has no projects.
+    async fn step_project(&mut self, delta: i32) {
+        let items = self.list_items();
+        let n = items.len();
+        let cur = items
+            .iter()
+            .position(|it| it.matches(&self.selection))
+            .unwrap_or(0);
+        let next = (1..=n)
+            .map(|step| {
+                if delta > 0 {
+                    (cur + step) % n
+                } else {
+                    (cur + n - step % n) % n
+                }
+            })
+            .find_map(|i| match &items[i] {
+                ListItem::GroupHeader { group, .. } => Some(group.id.clone()),
+                _ => None,
+            });
+        if let Some(id) = next {
+            self.select_group(id);
+            self.sync_active_window_selection();
+        }
+    }
+
     fn is_collapsed_ungrouped_archive_row(item: &ListItem) -> bool {
         matches!(
             item,
@@ -14039,6 +14073,8 @@ impl App {
                     self.step_selection(-1).await;
                 }
             }
+            NextProject => self.step_project(1).await,
+            PrevProject => self.step_project(-1).await,
             Refresh => {
                 self.refresh_sessions().await;
                 self.transcript_session = None;
@@ -27450,6 +27486,7 @@ mod tests {
                 created_at: chrono::Utc::now(),
                 position: 0,
                 collapsed: true,
+                cwd: None,
             },
             member_count: 3,
             attention_rollup: true,
@@ -32434,6 +32471,7 @@ mod tests {
             created_at: chrono::Utc::now(),
             position: 0,
             collapsed: false,
+            cwd: None,
         }];
         app.playbook_popup = Some(playbook_popup_for_test("s1", "", 0));
         app.insert_playbook_text("@");
@@ -36949,7 +36987,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn session_transition_glitches_the_visible_playbook_surface() {
+    async fn session_transition_dims_the_visible_playbook_surface() {
         let (mut app, _dir, server) = captured_app().await;
         let mut popup = playbook_popup_for_test(
             "s1",
@@ -36977,30 +37015,24 @@ mod tests {
             .draw(|frame| crate::ui::render(frame, &mut app))
             .expect("transition draw");
         let after = terminal.backend().buffer();
-        let glitch_colors = [
-            app.theme.matrix_flash_work,
-            app.theme.matrix_flash_good,
-            app.theme.accent,
-            app.theme.matrix_glow,
-        ];
-        let playbook_was_glitched = playbook_area.rows().any(|row| {
-            row.columns().any(|pos| {
-                let Some(before_cell) = before.cell(pos) else {
-                    return false;
-                };
-                let Some(after_cell) = after.cell(pos) else {
-                    return false;
-                };
-                before_cell.symbol() != after_cell.symbol()
-                    && after_cell
-                        .style()
-                        .fg
-                        .is_some_and(|color| glitch_colors.contains(&color))
+        let playbook_was_dimmed = playbook_area.rows().all(|row| {
+            row.columns().all(|pos| {
+                after
+                    .cell(pos)
+                    .is_some_and(|cell| {
+                        cell.style()
+                            .add_modifier
+                            .contains(ratatui::style::Modifier::DIM)
+                    })
             })
         });
+        let symbols = |buf: &ratatui::buffer::Buffer| {
+            buf.content.iter().map(|c| c.symbol().to_string()).collect::<Vec<_>>()
+        };
+        assert_eq!(symbols(&before), symbols(after), "dim must not change text");
 
         assert!(
-            playbook_was_glitched,
+            playbook_was_dimmed,
             "the pane-level transition must be composited after the Playbook document"
         );
         server.abort();
@@ -37068,6 +37100,7 @@ mod tests {
             created_at: chrono::Utc::now(),
             position: 0,
             collapsed: false,
+            cwd: None,
         }];
         (app, dir, server)
     }
@@ -38700,7 +38733,7 @@ mod tests {
             .draw(|f| crate::ui::render(f, &mut app))
             .expect("hover draw");
         assert!(
-            rendered_text(terminal.backend().buffer()).contains("Open prompt suggestions · C-x ."),
+            rendered_text(terminal.backend().buffer()).contains("Open prompt suggestions · [C-x .]"),
             "hovering the chord should explain its action"
         );
 
@@ -38763,10 +38796,10 @@ mod tests {
                 "affordance is right-aligned flush against the pane edge"
             );
             // Chip text includes one filled space before the glyph and after
-            // the trailing '.'; exterior cells stay transparent.
-            let chip = " ✦ C-x . ";
+            // the trailing ']'; exterior cells stay transparent.
+            let chip = " ✦ [C-x .] ";
             assert!(
-                rendered_text(terminal.backend().buffer()).contains("✦ C-x ."),
+                rendered_text(terminal.backend().buffer()).contains("✦ [C-x .]"),
                 "full-screen PTY repaint must not cover suggestion chrome"
             );
             let buffer = terminal.backend().buffer();
@@ -38794,7 +38827,7 @@ mod tests {
                 .cell((chip_start + chip_width - 1, hit.area.y))
                 .expect("right interior space");
             assert_eq!(left_space.symbol(), " ", "space before glyph");
-            assert_eq!(right_space.symbol(), " ", "space after trailing '.'");
+            assert_eq!(right_space.symbol(), " ", "space after trailing ']'");
             for x in [hit.area.x, hit.area.right().saturating_sub(1)] {
                 let cell = buffer.cell((x, hit.area.y)).expect("exterior padding cell");
                 assert!(
@@ -39406,7 +39439,7 @@ mod tests {
             .expect("draw s2");
         let text = rendered_text(terminal.backend().buffer());
         assert!(
-            text.contains("✦ C-x ."),
+            text.contains("✦ [C-x .]"),
             "s2's affordance is idle (no hand/pending): {text}"
         );
         assert!(
@@ -40062,7 +40095,7 @@ mod tests {
             "missing exit shortcut:\n{screen}"
         );
         assert!(
-            screen.contains("C-x C-c  exit TUI"),
+            screen.contains("[C-x C-c]  exit TUI"),
             "missing quit shortcut:\n{screen}"
         );
         assert!(
@@ -40070,11 +40103,11 @@ mod tests {
             "empty state should not show q as the quit shortcut:\n{screen}"
         );
         assert!(
-            screen.contains("new: C-x C-f help: ? palette: C-x x tour: t"),
+            screen.contains("[C-x C-f] new [?] help [C-x x] palette [t]our"),
             "missing modeline hint (incl. the tour segment):\n{screen}"
         );
         assert!(
-            screen.contains("[start the interactive tour]  — or press t"),
+            screen.contains("[start the interactive tour]  — or press [t]"),
             "missing the welcome-card tour call-to-action:\n{screen}"
         );
         assert!(
@@ -40297,7 +40330,7 @@ mod tests {
             "notice keeps right-edge alignment:\n{modeline}"
         );
         assert!(
-            !modeline.contains("tour: t") && !modeline.contains("help: ?"),
+            !modeline.contains("[t]our") && !modeline.contains("[?] help"),
             "hint segments that no longer fit must drop whole:\n{modeline}"
         );
         // Dropped segments register no zones on the modeline row.
@@ -40728,7 +40761,7 @@ mod tests {
             .expect("draw with wordmark hover");
         assert!(
             rendered_text(terminal.backend().buffer())
-                .contains("Minibuffer — click to open (C-x x)"),
+                .contains("Minibuffer — click to open [C-x x]"),
             "hovering the wordmark should show its tooltip"
         );
 
@@ -42255,7 +42288,7 @@ mod tests {
             .next_back()
             .copied()
             .expect("modeline tour segment zone");
-        // Alignment guard: the zone starts on the 't' of "tour: t".
+        // Alignment guard: the zone starts on the '[' of "[t]our".
         let first_cell = terminal
             .backend()
             .buffer()
@@ -42263,7 +42296,7 @@ mod tests {
             .map(|c| c.symbol().to_string())
             .unwrap_or_default();
         assert_eq!(
-            first_cell, "t",
+            first_cell, "[",
             "modeline tour zone must start on its label"
         );
         app.handle_left_click(hit.x_start, hit.y).await;
@@ -42283,7 +42316,7 @@ mod tests {
             .expect("draw");
         let screen = rendered_text(terminal.backend().buffer());
         assert!(
-            !screen.contains("tour: t"),
+            !screen.contains("[t]our"),
             "with-sessions modeline must not show the tour hint:\n{screen}"
         );
         assert!(
@@ -42297,7 +42330,7 @@ mod tests {
     }
 
     // While a tour is running, StartTutorial is a no-op — so neither the
-    // welcome-card CTA nor the modeline "tour: t" segment may keep looking
+    // welcome-card CTA nor the modeline "[t]our" segment may keep looking
     // clickable (the inverse of the card's click-ownership rule: if it
     // can't respond it must not look clickable). The row dims, hover shows
     // nothing, and no StartTutorial HintZone exists anywhere in the frame;
@@ -42377,7 +42410,7 @@ mod tests {
         let screen = rendered_text(terminal.backend().buffer());
         assert!(screen.contains("tour 1/9"), "missing step title:\n{screen}");
         assert!(
-            screen.contains("A chord like C-x C-f"),
+            screen.contains("A chord like [C-x C-f]"),
             "missing step1 body:\n{screen}"
         );
         server.abort();
@@ -43791,7 +43824,7 @@ mod tests {
             "default help should show emacs profile:\n{screen}"
         );
         assert!(
-            screen.contains("Use C-x C-f to create a session"),
+            screen.contains("Use [C-x C-f] to create a session"),
             "default help should show emacs shortcuts:\n{screen}"
         );
         server.abort();
@@ -43818,23 +43851,23 @@ mod tests {
             "vim help should show vim profile:\n{screen}"
         );
         assert!(
-            screen.contains("Use o to create a session"),
+            screen.contains("Use [o] to create a session"),
             "vim help should show vim create shortcut:\n{screen}"
         );
         assert!(
-            screen.contains(":               command palette"),
+            screen.contains("[:]                   command palette"),
             "vim help should show vim command palette shortcut:\n{screen}"
         );
         assert!(
-            screen.contains("d d             delete selected session"),
+            screen.contains("[d d]                 delete selected session"),
             "vim help should show vim delete chord:\n{screen}"
         );
         assert!(
-            screen.contains("C-w h/j/k/l     focus split window left/down/up/right"),
+            screen.contains("[C-w h/j/k/l]         focus split window left/down/up/right"),
             "vim help should show vim window chords:\n{screen}"
         );
         assert!(
-            !screen.contains("Use C-x C-f to create a session"),
+            !screen.contains("Use [C-x C-f] to create a session"),
             "vim help should not show the emacs create shortcut as primary:\n{screen}"
         );
         server.abort();
@@ -46394,13 +46427,13 @@ mod tests {
             capabilities: Default::default(),
         }];
         app.run_action(KeyAction::OpenNewSession).await;
-        app.on_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE))
-            .await;
+        app.on_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE))
+            .await; // `x` is no picker row's hotkey, so it types
         assert_eq!(
             app.prompt
                 .as_ref()
                 .map(|minibuffer| minibuffer.input.as_str()),
-            Some("s"),
+            Some("x"),
             "an open minibuffer must own keys over the operator view"
         );
         server.abort();
@@ -46749,9 +46782,9 @@ mod tests {
             !text.contains("Channel · assistant*"),
             "clean channel is unmarked"
         );
-        assert!(text.contains("C-s save"), "save hint is explicit: {text}");
+        assert!(text.contains("[C-s] save"), "save hint is explicit: {text}");
         assert!(
-            !text.contains("Enter/C-s save"),
+            !text.contains("[Enter]/[C-s] save"),
             "Enter is not advertised as save: {text}"
         );
 
@@ -47731,6 +47764,7 @@ mod tests {
                 created_at: chrono::Utc::now(),
                 position: 5,
                 collapsed: true,
+                cwd: None,
             },
             GroupSummary {
                 id: "g2".into(),
@@ -47738,6 +47772,7 @@ mod tests {
                 created_at: chrono::Utc::now(),
                 position: 6,
                 collapsed: true,
+                cwd: None,
             },
         ];
         let mut alpha = operator_summary_for_test("alpha");
@@ -47859,7 +47894,7 @@ mod tests {
         );
         let footer_row = view_rows
             .iter()
-            .position(|row| row.contains("Enter/C-s save · Space attach"))
+            .position(|row| row.contains("[Enter]/[C-s] save · [Space] attach"))
             .expect("operator editor footer is visible");
         assert!(
             footer_row > 0 && view_rows[footer_row - 1].trim().is_empty(),
@@ -49450,6 +49485,7 @@ mod tests {
             created_at: chrono::Utc::now(),
             position: 0,
             collapsed: true,
+            cwd: None,
         }];
 
         let backend = ratatui::backend::TestBackend::new(100, 30);
@@ -49964,6 +50000,7 @@ mod tests {
             created_at: chrono::Utc::now(),
             position: 0,
             collapsed: false,
+            cwd: None,
         }];
         app.selection = Selection::Session("s1".into());
         app.status = None;
@@ -50076,6 +50113,7 @@ mod tests {
             created_at: chrono::Utc::now(),
             position: 0,
             collapsed: false,
+            cwd: None,
         }];
         app.focus = PaneFocus::List;
         app.select_session("top-level".into());
@@ -50120,6 +50158,7 @@ mod tests {
             created_at: chrono::Utc::now(),
             position: 0,
             collapsed: false,
+            cwd: None,
         }];
         app.matrix_rain_hidden = true;
 
@@ -50192,6 +50231,7 @@ mod tests {
                 created_at: chrono::Utc::now(),
                 position: 0,
                 collapsed: false,
+                cwd: None,
             },
             member_count: 1,
             attention_rollup: false,
@@ -50279,6 +50319,7 @@ mod tests {
             created_at: chrono::Utc::now(),
             position: 0,
             collapsed: false,
+            cwd: None,
         }];
         app.matrix_rain_hidden = true;
         app.list_mode = SessionListViewMode::Full;
@@ -50403,6 +50444,7 @@ mod tests {
             created_at: chrono::Utc::now(),
             position: 0,
             collapsed: false,
+            cwd: None,
         }];
 
         // Each section resolves exactly its own archived members — never the

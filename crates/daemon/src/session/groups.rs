@@ -71,7 +71,7 @@ impl SessionManager {
         out
     }
 
-    pub async fn create_group(&self, name: String) -> Result<String> {
+    pub async fn create_group(&self, name: String, cwd: Option<String>) -> Result<String> {
         let name = name.trim();
         if name.is_empty() {
             return Err(anyhow!("group name is empty"));
@@ -84,6 +84,7 @@ impl SessionManager {
             created_at: now,
             position: -now.timestamp_millis(),
             collapsed: false,
+            cwd,
         };
         self.storage.save_group(&summary)?;
         self.groups.write().await.insert(

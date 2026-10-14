@@ -13,6 +13,11 @@ pub enum KeyAction {
     Quit,
     NextSession,
     PrevSession,
+    /// Jump the list selection to the next / previous project header,
+    /// wrapping. Bound `M-n` / `M-p` (emacs) and `}` / `{` or `]]` / `[[`
+    /// (vim).
+    NextProject,
+    PrevProject,
     Refresh,
     EnterInsert,
     OpenSendInput,
@@ -328,6 +333,8 @@ fn emacs() -> Keymap {
         (Chord(vec![ctrl('p')]), PrevSession),
         (Chord(vec![key(KeyCode::Down)]), NextSession),
         (Chord(vec![key(KeyCode::Up)]), PrevSession),
+        (Chord(vec![alt('n')]), NextProject),
+        (Chord(vec![alt('p')]), PrevProject),
         // Focus + view (C-x prefix, matching emacs window commands).
         // Enter from the list "drills in" to the session view; Tab is
         // intentionally left unbound for future use (e.g. completion).
@@ -434,6 +441,12 @@ fn vim() -> Keymap {
         (Chord(vec![ch('k')]), PrevSession),
         (Chord(vec![key(KeyCode::Down)]), NextSession),
         (Chord(vec![key(KeyCode::Up)]), PrevSession),
+        (Chord(vec![ch('}')]), NextProject),
+        (Chord(vec![shift('}')]), NextProject),
+        (Chord(vec![ch('{')]), PrevProject),
+        (Chord(vec![shift('{')]), PrevProject),
+        (Chord(vec![ch(']'), ch(']')]), NextProject),
+        (Chord(vec![ch('['), ch('[')]), PrevProject),
         (Chord(vec![ch('i')]), EnterInsert),
         (Chord(vec![ch('a')]), EnterInsert),
         (Chord(vec![shift('I')]), OpenSendInput),
@@ -906,6 +919,20 @@ mod tests {
                 "C-x Tab should toggle session-list focus in {profile:?}"
             );
         }
+    }
+
+    #[test]
+    fn project_jump_keys_resolve_in_both_profiles() {
+        let km = default_for(Profile::Emacs);
+        assert_action(&km, vec![alt('n')], KeyAction::NextProject);
+        assert_action(&km, vec![alt('p')], KeyAction::PrevProject);
+        let km = default_for(Profile::Vim);
+        assert_action(&km, vec![ch('}')], KeyAction::NextProject);
+        assert_action(&km, vec![shift('}')], KeyAction::NextProject);
+        assert_action(&km, vec![ch('{')], KeyAction::PrevProject);
+        assert_action(&km, vec![shift('{')], KeyAction::PrevProject);
+        assert_action(&km, vec![ch(']'), ch(']')], KeyAction::NextProject);
+        assert_action(&km, vec![ch('['), ch('[')], KeyAction::PrevProject);
     }
 
     #[test]

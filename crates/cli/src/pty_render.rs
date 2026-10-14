@@ -4745,10 +4745,10 @@ mod tests {
 
         assert!(text.contains("running"), "missing running status:\n{text}");
         assert!(
-            text.contains("Ctrl-b background"),
+            text.contains("[Ctrl-b] background"),
             "missing background key hint:\n{text}"
         );
-        assert!(text.contains("Esc kill"), "missing kill key hint:\n{text}");
+        assert!(text.contains("[Esc] kill"), "missing kill key hint:\n{text}");
         assert!(
             !text.contains("[bg]") && !text.contains("[kill]"),
             "button labels should not render:\n{text}"
@@ -4819,9 +4819,9 @@ mod tests {
             text.contains("in background"),
             "missing background status:\n{text}"
         );
-        assert!(text.contains("Esc kill"), "missing kill key hint:\n{text}");
+        assert!(text.contains("[Esc] kill"), "missing kill key hint:\n{text}");
         assert!(
-            !text.contains("Ctrl-b background"),
+            !text.contains("[Ctrl-b] background"),
             "backgrounded tools should not show background hint:\n{text}"
         );
         assert!(

@@ -1424,12 +1424,13 @@ impl Client {
         self.request(ipc_method::PROJECT_LIST, &serde_json::Value::Null)
             .await
     }
-    pub async fn create_project(&self, name: &str) -> Result<String> {
+    pub async fn create_project(&self, name: &str, cwd: Option<&str>) -> Result<String> {
         let r: ProjectCreateResult = self
             .request(
                 ipc_method::PROJECT_CREATE,
                 &ProjectCreateParams {
                     name: name.to_string(),
+                    cwd: cwd.map(str::to_string),
                 },
             )
             .await?;

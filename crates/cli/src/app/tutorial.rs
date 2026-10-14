@@ -566,9 +566,9 @@ fn step6_lines(profile: Profile, degraded: bool) -> Vec<TutorialLine> {
                 chord_label(KeyAction::RunPlaybook, profile),
                 KeyAction::RunPlaybook,
             ),
-            t(" runs it, moves task to In Progress,"),
+            t(" runs it, moves the task to"),
         ]);
-        lines.push(vec![t("and hands it to a subagent.")]);
+        lines.push(vec![t("In Progress, and hands it to a subagent.")]);
     }
     lines
 }
@@ -694,7 +694,7 @@ fn step8_lines(profile: Profile, list_focused: bool) -> Vec<TutorialLine> {
         "{} quits — don't press it now!",
         chord_label(KeyAction::Quit, profile)
     ))]);
-    lines.push(vec![t("([C-g] or [Esc] still backs out, as in step 1.)")]);
+    lines.push(vec![t("([C-g] or [Esc] still backs out here too.)")]);
     lines.push(vec![]);
     lines.push(vec![k("[got it]", KeyAction::TutorialNextStep)]);
     lines
@@ -1364,19 +1364,19 @@ mod tests {
 
     #[test]
     fn vim_profile_uses_vim_idiomatic_labels() {
-        assert_eq!(chord_label(KeyAction::OpenNewSession, Profile::Vim), "o");
+        assert_eq!(chord_label(KeyAction::OpenNewSession, Profile::Vim), "[o]");
         assert_eq!(
             chord_label(KeyAction::SplitWindowBelow, Profile::Vim),
-            "C-w s"
+            "[C-w s]"
         );
         assert_eq!(
             chord_label(KeyAction::OpenDeleteConfirm, Profile::Vim),
-            "dd"
+            "[dd]"
         );
-        assert_eq!(chord_label(KeyAction::DeleteWindow, Profile::Vim), "C-w c");
+        assert_eq!(chord_label(KeyAction::DeleteWindow, Profile::Vim), "[C-w c]");
         assert_eq!(
             chord_label(KeyAction::DeleteOtherWindows, Profile::Vim),
-            "C-w o"
+            "[C-w o]"
         );
     }
 

@@ -479,9 +479,6 @@ impl App {
                     self.open_new_operator_view(suggested);
                     return;
                 }
-                let cwd = std::env::current_dir()
-                    .map(|p| p.to_string_lossy().to_string())
-                    .unwrap_or_else(|_| ".".to_string());
                 // Inherit the group context from the current selection
                 // so creating a session "while inside" a group keeps
                 // the new session in that same group.
@@ -501,6 +498,17 @@ impl App {
                     | Selection::Operator(_)
                     | Selection::None => None,
                 };
+                // A project with a directory pins where its sessions start.
+                let cwd = group_id
+                    .as_ref()
+                    .and_then(|gid| self.groups.iter().find(|g| g.id == *gid))
+                    .and_then(|g| g.cwd.clone())
+                    .or_else(|| {
+                        std::env::current_dir()
+                            .ok()
+                            .map(|p| p.to_string_lossy().to_string())
+                    })
+                    .unwrap_or_else(|| ".".to_string());
                 let params = construct_protocol::CreateSessionParams {
                     harness: harness.clone(),
                     cwd,
@@ -634,7 +642,41 @@ impl App {
                     self.set_status("project name empty".into());
                     return;
                 }
-                match self.client.create_project(&trimmed).await {
+                let input = std::env::current_dir()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                self.prompt = Some(Prompt {
+                    prompt: "Project directory: ".to_string(),
+                    cursor: input.chars().count(),
+                    input,
+                    intent: PromptIntent::NewGroupDir { name: trimmed },
+                    error: None,
+                });
+            }
+            PromptIntent::NewGroupDir { name } => {
+                let dir = input.trim();
+                let cwd = if dir.is_empty() {
+                    None
+                } else {
+                    // Absolute, so the daemon resolves it the same way the TUI does.
+                    let path = std::fs::canonicalize(crate::clipboard_bridge::expand_home(dir))
+                        .ok()
+                        .filter(|p| p.is_dir());
+                    let Some(path) = path else {
+                        let cursor = input.chars().count();
+                        self.prompt = Some(Prompt {
+                            prompt: "Project directory: ".to_string(),
+                            input,
+                            cursor,
+                            intent: PromptIntent::NewGroupDir { name },
+                            error: Some("not a directory".to_string()),
+                        });
+                        return;
+                    };
+                    Some(path.to_string_lossy().to_string())
+                };
+                let trimmed = name;
+                match self.client.create_project(&trimmed, cwd.as_deref()).await {
                     Ok(id) => {
                         self.set_status(format!("created project '{trimmed}'"));
                         self.refresh_sessions().await; // also refreshes groups

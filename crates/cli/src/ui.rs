@@ -6250,75 +6250,8 @@ fn hash64(mut x: u64) -> u64 {
     x ^ (x >> 31)
 }
 
-fn hash_str(s: &str) -> u64 {
-    let mut h = 0xcbf29ce484222325u64;
-    for b in s.bytes() {
-        h ^= b as u64;
-        h = h.wrapping_mul(0x100000001b3);
-    }
-    h
-}
-
 fn unit_f32(seed: u64) -> f32 {
     ((seed >> 11) as f64 / ((1u64 << 53) as f64)) as f32
-}
-
-fn transition_amount(started_at: Instant) -> Option<f32> {
-    let elapsed = started_at.elapsed().as_millis();
-    if elapsed >= crate::app::SESSION_TRANSITION_MS {
-        return None;
-    }
-    Some(1.0 - (elapsed as f32 / crate::app::SESSION_TRANSITION_MS as f32))
-}
-
-fn glitch_style(theme: &Theme, row: u16) -> Style {
-    let color = match row % 4 {
-        0 => theme.matrix_flash_work,
-        1 => theme.matrix_flash_good,
-        2 => theme.accent,
-        _ => theme.matrix_glow,
-    };
-    Style::default().fg(color)
-}
-
-fn render_glitch_overlay(f: &mut Frame, area: Rect, theme: &Theme, seed: u64, amount: f32) {
-    if area.width == 0 || area.height == 0 || amount <= 0.0 {
-        return;
-    }
-    let frame = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64 / crate::app::SPINNER_FRAME_MS as u64)
-        .unwrap_or(0);
-    let density = 0.18 + 0.48 * amount;
-    let charset = b"01#@%+-/\\_|";
-    for row in 0..area.height {
-        let row_seed = hash64(seed ^ frame.wrapping_mul(97) ^ row as u64);
-        if unit_f32(row_seed) > density {
-            continue;
-        }
-        let mut text = String::with_capacity(area.width as usize);
-        let shift = (unit_f32(hash64(row_seed ^ 0x51)) * 6.0 * amount) as usize;
-        for col in 0..area.width as usize {
-            let cell_seed = hash64(row_seed ^ (col as u64).wrapping_mul(0x9e37));
-            let noise = unit_f32(cell_seed);
-            if col < shift || noise < 0.20 + 0.42 * amount {
-                let idx = (hash64(cell_seed ^ 0xa11ce) as usize) % charset.len();
-                text.push(charset[idx] as char);
-            } else {
-                text.push(' ');
-            }
-        }
-        let style = glitch_style(theme, row);
-        f.render_widget(
-            Paragraph::new(Line::from(Span::styled(text, style))),
-            Rect {
-                x: area.x,
-                y: area.y + row,
-                width: area.width,
-                height: 1,
-            },
-        );
-    }
 }
 
 fn render_main_transitions(f: &mut Frame, app: &App) {
@@ -6326,18 +6259,14 @@ fn render_main_transitions(f: &mut Frame, app: &App) {
         let Some(t) = app.session_transitions.get(&pane.id) else {
             continue;
         };
-        let Some(amount) = transition_amount(t.started_at) else {
+        if t.started_at.elapsed().as_millis() >= crate::app::SESSION_TRANSITION_MS {
             continue;
-        };
+        }
         app.request_tick_redraw();
-        let seed = match app.selection_for_window(pane.id) {
-            Some(Selection::Session(id)) => hash_str(&id),
-            Some(Selection::Group(id)) => hash_str(&id) ^ 0x67726f7570,
-            Some(Selection::ArchivedRow(_)) => 0x617263,
-            Some(Selection::Operator(id)) => hash_str(&id) ^ 0x73657276696365,
-            Some(Selection::None) | None => 0x5e5510,
-        };
-        render_glitch_overlay(f, pane.inner_area, &app.theme, seed, amount);
+        f.buffer_mut().set_style(
+            pane.inner_area,
+            Style::default().add_modifier(Modifier::DIM),
+        );
     }
 }
 
@@ -12970,10 +12899,10 @@ fn render_modeline(f: &mut Frame, area: Rect, app: &mut App) {
     let empty_hint_segments: &[(&str, KeyAction)] =
         if s.is_none() && app.list_items().is_empty() && status.is_empty() {
             &[
-                ("new: [C-x C-f]", KeyAction::OpenNewSession),
-                ("help: [?]", KeyAction::ToggleHelp),
-                ("palette: [C-x x]", KeyAction::OpenCommandPalette),
-                ("tour: [t]", KeyAction::StartTutorial),
+                ("[C-x C-f] new", KeyAction::OpenNewSession),
+                ("[?] help", KeyAction::ToggleHelp),
+                ("[C-x x] palette", KeyAction::OpenCommandPalette),
+                ("[t]our", KeyAction::StartTutorial),
             ]
         } else {
             &[]
@@ -13297,7 +13226,7 @@ fn render_modeline(f: &mut Frame, area: Rect, app: &mut App) {
         let sep_w = if i > 0 { 1 } else { 0 };
         // Collision guard: the hint segments are ordered highest-priority
         // first, so when the right-aligned notice leaves too little room,
-        // whole segments drop from the tail (`tour: t` first, `new:` last)
+        // whole segments drop from the tail (`[t]our` first, `new` last)
         // rather than rendering under the notice. A dropped segment
         // registers no HintZone, so a click on the notice can never
         // dispatch a hint action hidden beneath it.
@@ -13310,7 +13239,7 @@ fn render_modeline(f: &mut Frame, area: Rect, app: &mut App) {
             spans.push(Span::raw(" "));
             hint_col = hint_col.saturating_add(1);
         }
-        // "tour: t" goes inert while a tour is already running — the action
+        // "[t]our" goes inert while a tour is already running — the action
         // would be a no-op, so it must not look clickable: dimmed, no hover,
         // no HintZone. (Same inverse of the tour card's click-ownership
         // rule as the welcome-card CTA.)
@@ -14595,6 +14524,7 @@ emacs keymap (default; CONSTRUCT_KEYMAP=vim for vim profile)
     [C-x z]               zoom: fill the screen with the session view
     [C-n] / [down]        next session
     [C-p] / [up]          prev session
+    [M-n] / [M-p]         next/prev project
 
   session actions
     [C-x C-f]             new session
@@ -14669,6 +14599,7 @@ vim keymap (CONSTRUCT_KEYMAP=vim; unset for emacs profile)
     [v] / [C-x t]         toggle chat ↔ terminal view
     [z] / [C-w z]         zoom: fill the screen with the session view
     [j]/[k]/[down]/[up]   next/prev session
+    [}]/[{] []]]/[[[]     next/prev project
 
   session actions
     [o] / [n]             new session
@@ -26911,6 +26842,7 @@ mod tests {
                 created_at: chrono::Utc::now(),
                 position: 0,
                 collapsed: true,
+                cwd: None,
             },
             member_count: 3,
             attention_rollup: true,

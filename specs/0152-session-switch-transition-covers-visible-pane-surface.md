@@ -12,6 +12,10 @@ of the split pane that changed sessions. It is painted after the pane's visible
 surface and pane-anchored overlays, including Playbook documents, terminal or
 chat content, widgets, previews, and hover cards.
 
+The transition is a brief dim of that surface: its text and colors are kept and
+only dimmed, then return to normal. It never draws noise characters or extra
+colors over the content.
+
 Pane chrome remains stable, and other split panes do not participate in the
 transition.
 
@@ -20,14 +24,17 @@ transition.
 The Playbook is a peer surface within a session pane, not a layer outside the
 session-switch interaction. Applying the transition before the Playbook is
 composited lets the Playbook clear and hide the effect, so switching to a
-session with its Playbook open appears to glitch only the terminal exposed
+session with its Playbook open appears to dim only the terminal exposed
 underneath it.
+
+A noise-glyph glitch effect was dropped: it read as loud and flickery. A dim
+signals the switch without changing what is on screen.
 
 ## Consequences
 
 - New surfaces or overlays rendered inside a session pane inherit the switch
   transition when they are composed before the pane-level transition pass.
 - Transition state remains keyed by split-pane identity so one pane switching
-  does not glitch neighboring panes that did not change.
+  does not dim neighboring panes that did not change.
 - The pane border and title remain readable and visually stable during the
   short transition.
