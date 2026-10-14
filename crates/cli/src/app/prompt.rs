@@ -269,6 +269,21 @@ impl App {
         let alt = key.modifiers.contains(KeyModifiers::ALT);
         let input_before = mb.input.clone();
 
+        // On an empty input a row's `[x]` letter chooses it like Enter;
+        // letters without a row still start the filter.
+        let key = match key.code {
+            KeyCode::Char(c) if is_harness_picker && !ctrl && !alt && mb.input.is_empty() => {
+                match picker_entries.iter().position(|e| e.hotkey == Some(c)) {
+                    Some(index) => {
+                        self.harness_picker_selected = index;
+                        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)
+                    }
+                    None => key,
+                }
+            }
+            _ => key,
+        };
+
         match key.code {
             KeyCode::Esc => {
                 self.prompt = None;
@@ -315,6 +330,7 @@ impl App {
                                 description: String::new(),
                                 available: true,
                                 detail: None,
+                                hotkey: None,
                             }
                         }
                         None => {

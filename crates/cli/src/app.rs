@@ -10,8 +10,8 @@ use construct_protocol::{
     TimestampedEvent,
 };
 use crossterm::event::{
-    DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
-    Event as CtEvent, EventStream, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind,
+    DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
+    EnableFocusChange, EnableMouseCapture, Event as CtEvent, EventStream, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind,
 };
 use crossterm::execute;
 use crossterm::terminal::{
@@ -2421,6 +2421,9 @@ pub struct App {
     /// minibuffer panel and routes keystrokes there when the panel is
     /// focused. `None` falls back to the static palette UX.
     pub minibuffer_id: Option<String>,
+    /// Whether the outer terminal window has focus, from focus-change
+    /// reports. Terminals that never report stay `true`.
+    pub terminal_focused: bool,
     /// Width (in terminal cells) of the session-list pane in the
     /// normal (non-zoomed) layout. Adjustable by dragging the right
     /// border with the mouse; clamped at render time to
@@ -4483,7 +4486,7 @@ pub struct LayoutSnapshot {
     /// (`PromptIntent::NewSessionHarness`). Click → submit the
     /// matching name as if the user typed it and hit Enter.
     pub prompt_harness_hits: Vec<HarnessHit>,
-    /// Clickable choice labels (`y`, `N`, `d`, `a`, `y=approve`, ...) in the
+    /// Clickable choice labels (`y`, `N`, `d`, `a`, `[y] approve`, ...) in the
     /// last-rendered minibuffer confirm/approval prompt (spec 0075). Click →
     /// dispatch exactly as the matching keypress would, via whichever of the
     /// two keyboard mechanisms (`PromptChoiceAction`) the intent uses.
@@ -5195,6 +5198,30 @@ pub struct HarnessPickerEntry {
     pub description: String,
     pub available: bool,
     pub detail: Option<String>,
+    /// Mnemonic launch key, shown as `[c]laude`: the first letter of the
+    /// name not already taken by an earlier entry.
+    pub hotkey: Option<char>,
+}
+
+impl HarnessPickerEntry {
+    /// Name with its hotkey letter wrapped in brackets, e.g. `c[o]dex`.
+    pub fn label(&self) -> String {
+        let Some(key) = self.hotkey else {
+            return self.name.clone();
+        };
+        let mut done = false;
+        self.name
+            .chars()
+            .map(|c| {
+                if !done && c.to_ascii_lowercase() == key {
+                    done = true;
+                    format!("[{c}]")
+                } else {
+                    c.to_string()
+                }
+            })
+            .collect()
+    }
 }
 
 pub fn harness_picker_entries(
@@ -5212,12 +5239,14 @@ pub fn harness_picker_entries(
             description: "Create a new project".to_string(),
             available: true,
             detail: None,
+            hotkey: None,
         });
         entries.push(HarnessPickerEntry {
             name: "operator".to_string(),
             description: "Create a new operator".to_string(),
             available: true,
             detail: None,
+            hotkey: None,
         });
     }
     entries.extend(harnesses.iter().map(|h| HarnessPickerEntry {
@@ -5225,7 +5254,19 @@ pub fn harness_picker_entries(
         description: h.description.clone().unwrap_or_default(),
         available: h.available,
         detail: h.detail.clone(),
+        hotkey: None,
     }));
+
+    // Assign before filtering and sorting so a harness keeps its letter
+    // while typing or when its availability changes.
+    let mut used = std::collections::HashSet::new();
+    for entry in &mut entries {
+        entry.hotkey = entry
+            .name
+            .chars()
+            .map(|c| c.to_ascii_lowercase())
+            .find(|c| c.is_ascii_lowercase() && used.insert(*c));
+    }
 
     if filter_active && !query.trim().is_empty() {
         let needle = query.trim().to_ascii_lowercase();
@@ -5914,6 +5955,7 @@ async fn run_with_socket_initial_selection(
         mouse_capture_enabled: true,
         last_playbook_clip_click: None,
         minibuffer_id: initial_orch_id,
+        terminal_focused: true,
         list_panel_w: persisted.list_panel_w.unwrap_or(LIST_PANEL_W_DEFAULT),
         resizing_list: None,
         matrix_rain_h: persisted.matrix_rain_h,
@@ -6098,7 +6140,8 @@ async fn run_with_socket_initial_selection(
         stdout,
         EnterAlternateScreen,
         EnableMouseCapture,
-        EnableBracketedPaste
+        EnableBracketedPaste,
+        EnableFocusChange
     )
     .context("enter alternate screen / enable mouse")?;
     // Progressive enhancement: ask the terminal to disambiguate escape
@@ -6138,7 +6181,8 @@ async fn run_with_socket_initial_selection(
         terminal.backend_mut(),
         LeaveAlternateScreen,
         DisableMouseCapture,
-        DisableBracketedPaste
+        DisableBracketedPaste,
+        DisableFocusChange
     );
     terminal.show_cursor().ok();
 
@@ -6342,7 +6386,7 @@ async fn run_loop(
             app.connected = false;
             reconnect = Some(ReconnectState::new(Instant::now()));
             app.set_status(
-                "daemon disconnected — reconnecting… (press C-x C-c to quit TUI)".to_string(),
+                "daemon disconnected — reconnecting… (press [C-x C-c] to quit TUI)".to_string(),
             );
         }
         app.prune_finished_transitions();
@@ -6369,7 +6413,7 @@ async fn run_loop(
                     Err(e) => {
                         state.schedule_next(now);
                         app.set_status(format!(
-                            "daemon disconnected — reconnecting… (press C-x C-c to quit TUI; last error: {e})"
+                            "daemon disconnected — reconnecting… (press [C-x C-c] to quit TUI; last error: {e})"
                         ));
                     }
                 }
@@ -6890,7 +6934,7 @@ async fn run_loop(
                             app.connected = false;
                             reconnect = Some(ReconnectState::new(Instant::now()));
                             app.set_status(
-                                "daemon disconnected — reconnecting… (press C-x C-c to quit TUI)"
+                                "daemon disconnected — reconnecting… (press [C-x C-c] to quit TUI)"
                                     .to_string(),
                             );
                         }
@@ -7575,7 +7619,7 @@ impl App {
                             .map(|n| n.to_string_lossy().into_owned())
                             .unwrap_or_else(|| path.clone());
                         self.prompt = Some(Prompt {
-                            prompt: format!("Upload local file {name} to the playbook? [y/n] "),
+                            prompt: format!("Upload local file {name} to the playbook? [y]es / [n]o "),
                             input: String::new(),
                             cursor: 0,
                             intent: PromptIntent::ConfirmLocalFileUpload {
@@ -7639,7 +7683,7 @@ impl App {
                         .unwrap_or_else(|| path.clone());
                     self.prompt = Some(Prompt {
                         prompt: format!(
-                            "Upload local file {name} to {}? [y/n] ",
+                            "Upload local file {name} to {}? [y]es / [n]o ",
                             short_id(&session_id)
                         ),
                         input: String::new(),
@@ -8259,14 +8303,19 @@ impl App {
 
     /// Tell the daemon which sessions are currently visible on the screen so it
     /// can suppress / clear the unblock markers (`needs_attention`) for all of them.
+    /// While the terminal window is unfocused nothing is on screen for the
+    /// user, so visible sessions can raise markers (and the bell) too.
     fn report_focused_sessions(&self) {
         let client = self.client.clone();
-        let ids: Vec<String> = self
-            .main_windows
-            .visible_session_ids()
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
+        let ids: Vec<String> = if self.terminal_focused {
+            self.main_windows
+                .visible_session_ids()
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
+        } else {
+            Vec::new()
+        };
         tokio::spawn(async move {
             let _ = client.set_focused_sessions(ids).await;
         });
@@ -10126,8 +10175,8 @@ impl App {
             self.focus_main_window(new_id);
             self.set_status(
                 match direction {
-                    WindowSplitDirection::Below => "split below — C-x o cycles windows",
-                    WindowSplitDirection::Right => "split right — C-x o cycles windows",
+                    WindowSplitDirection::Below => "split below — [C-x o] cycles windows",
+                    WindowSplitDirection::Right => "split right — [C-x o] cycles windows",
                 }
                 .into(),
             );
@@ -11084,6 +11133,18 @@ impl App {
                         if payload.session.archived && !was_archived {
                             self.focus_neighbor_of(&id);
                         }
+                        let was_flagged = self
+                            .sessions
+                            .iter()
+                            .find(|s| s.id == id)
+                            .is_some_and(|s| s.needs_attention);
+                        if should_ring_attention_bell(
+                            was_flagged,
+                            &payload.session,
+                            self.terminal_focused,
+                        ) {
+                            ring_terminal_bell();
+                        }
                         if let Some(i) = self.sessions.iter().position(|s| s.id == id) {
                             self.sessions[i] = payload.session;
                         } else {
@@ -11093,7 +11154,8 @@ impl App {
                         }
                         // If the session that just changed is visible on screen,
                         // consume its marker right away.
-                        if self.session_visible_on_screen(&id)
+                        if self.terminal_focused
+                            && self.session_visible_on_screen(&id)
                             && self
                                 .sessions
                                 .iter()
@@ -11558,7 +11620,7 @@ impl App {
             construct_protocol::ToolRisk::Risky => "risky",
         };
         let short_args: String = args_summary.chars().take(80).collect();
-        // The choice cluster (`y=approve  n=deny  a=auto-review  f=always-approve`)
+        // The choice cluster (`[y] approve  [n] deny  [a]uto-review  [f] always-approve`)
         // is no longer baked into the stored prompt text — it's rendered
         // separately as clickable spans (spec 0075), built from
         // `allow_auto_review` on the intent itself.
@@ -11752,7 +11814,14 @@ impl App {
                 // The TUI re-derives the pane size on next render; we trigger
                 // an explicit resize for the current PTY there.
             }
-            _ => {}
+            CtEvent::FocusLost => {
+                self.terminal_focused = false;
+                self.report_focused_sessions();
+            }
+            CtEvent::FocusGained => {
+                self.terminal_focused = true;
+                self.report_focused_sessions();
+            }
         }
     }
 
@@ -14471,7 +14540,7 @@ impl App {
                 // continues at the cursor's current row.
                 self.set_status(
                     if self.zoom != ZoomMode::None {
-                        "zoomed — C-x z to unzoom"
+                        "zoomed — [C-x z] to unzoom"
                     } else {
                         "zoom off"
                     }
@@ -15404,7 +15473,7 @@ impl App {
             "operators" | "services" => {
                 self.refresh_operators().await;
                 if self.operators.is_empty() {
-                    self.set_status("operators: none — use C-x C-f and choose operator".to_string())
+                    self.set_status("operators: none — use [C-x C-f] and choose operator".to_string())
                 } else {
                     self.set_status(format!(
                         "operators: {}",
@@ -16929,6 +16998,27 @@ fn osc52_sequence_for_mode(text: &str, mode: Osc52Mode) -> String {
     }
 }
 
+/// A session newly raised its "needs you" marker while the terminal window is
+/// unfocused: ring the outer terminal so it can flag the window (e.g. foot's
+/// `[bell] urgent=yes`). The hidden minibuffer never rings.
+fn should_ring_attention_bell(
+    was_flagged: bool,
+    session: &SessionSummary,
+    terminal_focused: bool,
+) -> bool {
+    !terminal_focused
+        && !was_flagged
+        && session.needs_attention
+        && session.native_subagent.is_none()
+        && session.kind != construct_protocol::SessionKind::Minibuffer
+}
+
+fn ring_terminal_bell() {
+    let mut stdout = std::io::stdout();
+    let _ = stdout.write_all(b"\x07");
+    let _ = stdout.flush();
+}
+
 fn copy_with_osc52_mode(text: &str, mode: Osc52Mode) -> Result<()> {
     let mut stdout = std::io::stdout();
     write!(stdout, "{}", osc52_sequence_for_mode(text, mode))?;
@@ -18330,6 +18420,7 @@ mod tests {
             mouse_capture_enabled: true,
             last_playbook_clip_click: None,
             minibuffer_id: None,
+            terminal_focused: true,
             list_panel_w: LIST_PANEL_W_DEFAULT,
             resizing_list: None,
             matrix_rain_h: None,
@@ -18696,6 +18787,21 @@ mod tests {
             named_op_xy_session_slots(&[newer])[2].as_deref(),
             Some("newer")
         );
+    }
+
+    #[test]
+    fn attention_bell_rings_only_on_new_marker_while_unfocused() {
+        use construct_protocol::SessionKind;
+        let mut flagged = summary_with_kind(SessionKind::User);
+        flagged.needs_attention = true;
+        assert!(should_ring_attention_bell(false, &flagged, false));
+        assert!(!should_ring_attention_bell(false, &flagged, true), "focused terminal");
+        assert!(!should_ring_attention_bell(true, &flagged, false), "already flagged");
+        let quiet = summary_with_kind(SessionKind::User);
+        assert!(!should_ring_attention_bell(false, &quiet, false), "no marker");
+        let mut minibuffer = summary_with_kind(SessionKind::Minibuffer);
+        minibuffer.needs_attention = true;
+        assert!(!should_ring_attention_bell(false, &minibuffer, false), "minibuffer");
     }
 
     #[test]
@@ -41948,10 +42054,9 @@ mod tests {
         ];
         app.run_action(KeyAction::OpenNewSession).await;
 
-        for c in ['c', 'o', 'd'] {
-            app.handle_prompt_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE))
-                .await;
-        }
+        // `x` is no row's hotkey, so it starts the filter instead of launching.
+        app.handle_prompt_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE))
+            .await;
         assert!(app.harness_picker_filter_active);
         assert_eq!(app.harness_picker_selected, 0);
 
@@ -41976,6 +42081,37 @@ mod tests {
             app.prompt.is_none(),
             "Enter after completing codex must submit codex, not open the project prompt"
         );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn harness_picker_hotkey_letters_label_and_launch_rows() {
+        let (mut app, _dir, server) = empty_app().await;
+        let harness = |name: &str, available: bool| construct_protocol::HarnessInfo {
+            name: name.to_string(),
+            available,
+            detail: Some(if available { "ready" } else { "not on PATH" }.to_string()),
+            binary: None,
+            description: None,
+            capabilities: Default::default(),
+        };
+        app.harnesses = vec![harness("claude", false), harness("codex", true)];
+
+        let labels: Vec<String> = harness_picker_entries(&app.harnesses, false, "", false)
+            .iter()
+            .map(HarnessPickerEntry::label)
+            .collect();
+        assert_eq!(labels, ["[p]roject", "[o]perator", "co[d]ex", "[c]laude"]);
+
+        app.run_action(KeyAction::OpenNewSession).await;
+        app.handle_prompt_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE))
+            .await;
+        let minibuffer = app.prompt.as_ref().expect("unavailable hotkey keeps picker open");
+        assert_eq!(minibuffer.error.as_deref(), Some("not on PATH"));
+
+        app.handle_prompt_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE))
+            .await;
+        assert!(app.prompt.is_none(), "`d` launches codex like Enter");
         server.abort();
     }
 

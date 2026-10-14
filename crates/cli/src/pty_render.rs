@@ -1921,9 +1921,9 @@ fn synth_block(block: &ToolBlock, cols: u16) -> SynthOutput {
         line.push_str(&format!("\x1b[2;33m{status_text}\x1b[0m"));
         if controls_ready {
             if is_running {
-                line.push_str("  \x1b[2m· Ctrl-b background · Esc kill · type to queue\x1b[0m");
+                line.push_str("  \x1b[2m· [Ctrl-b] background · [Esc] kill · type to queue\x1b[0m");
             } else {
-                line.push_str("  \x1b[2m· Esc kill\x1b[0m");
+                line.push_str("  \x1b[2m· [Esc] kill\x1b[0m");
             }
         }
         line.push_str("\r\n");

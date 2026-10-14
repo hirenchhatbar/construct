@@ -81,16 +81,14 @@ impl AutoApprovePolicy {
 
     /// Translate the policy into Claude CLI `--allowed-tools` flag values.
     /// Returns a flat vec ready to extend a spawn command's args. The Claude
-    /// permission rule format is `Tool(pattern)`; for file writes we cover
-    /// `Write`, `Edit`, and `MultiEdit` with a `<dir>/**` glob each.
+    /// permission rule format is `Tool(pattern)`; an `Edit(<dir>/**)` rule
+    /// covers every file-editing tool. Claude warns on `Write(path)` /
+    /// `MultiEdit(path)` rules since they're never matched.
     pub fn claude_allowed_tools_args(&self) -> Vec<String> {
-        let mut out = Vec::with_capacity(self.allow_paths.len() * 6);
+        let mut out = Vec::with_capacity(self.allow_paths.len() * 2);
         for root in &self.allow_paths {
-            let glob = format!("{}/**", root.display());
-            for tool in ["Write", "Edit", "MultiEdit"] {
-                out.push("--allowed-tools".into());
-                out.push(format!("{tool}({glob})"));
-            }
+            out.push("--allowed-tools".into());
+            out.push(format!("Edit({}/**)", root.display()));
         }
         out
     }
@@ -168,11 +166,7 @@ mod tests {
             args,
             vec![
                 "--allowed-tools".to_string(),
-                "Write(/widgets/**)".to_string(),
-                "--allowed-tools".to_string(),
                 "Edit(/widgets/**)".to_string(),
-                "--allowed-tools".to_string(),
-                "MultiEdit(/widgets/**)".to_string(),
             ]
         );
     }

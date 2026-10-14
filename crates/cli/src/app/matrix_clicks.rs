@@ -164,7 +164,7 @@ impl App {
                 }
             }
             // Confirm/approval choice clusters (spec 0075: `y`/`N`,
-            // `d`/`a`/`N`, `y=approve`/`n=deny`/..., ...). A click on a
+            // `d`/`a`/`N`, `[y] approve`/`[n] deny`/..., ...). A click on a
             // rendered choice label dispatches exactly as the matching
             // keypress would, through whichever of the two keyboard
             // mechanisms the intent already uses — never a third,

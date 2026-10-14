@@ -16,6 +16,14 @@ then `operator`. Choosing either action asks for its name in the minibuffer.
 After an operator name is accepted, a focused, unsaved operator editor opens
 under that name. Operator creation has no separate `/serve` slash-command path.
 
+Each row carries a mnemonic letter shown in brackets inside its name, such as
+`[c]laude` or `co[d]ex`: the first letter of the name not already taken by an
+earlier entry, assigned in creation-action then registration order, before
+filtering or availability sorting so a row keeps its letter. While the input is
+empty, pressing a row's letter chooses that row exactly as Enter would. A letter
+no row owns starts the filter instead, and once the input is non-empty letters
+only filter.
+
 Typing filters rows case-insensitively by name or description. Up and Down move
 the highlighted row, with Control-P and Control-N as equivalent previous/next
 bindings. Scrolling the mouse wheel over the picker moves the highlight with

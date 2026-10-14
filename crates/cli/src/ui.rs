@@ -541,12 +541,12 @@ fn operator_dialog_field_help(
             crate::app::OperatorDialogFocus::Channel(_) => (
                 "Channels",
                 "The daemon-wide channel catalog. A filled square is attached here; an empty square is available to attach. Channels owned by another operator are unavailable.",
-                "Space attaches/detaches · p publishes/withdraws · o opens · y copies · Enter edits · a creates.",
+                "[Space] attaches/detaches · [p]ublishes/withdraws · [o]pens · [y] copies · [Enter] edits · [a] creates.",
             ),
             _ => (
                 "Sessions",
                 "Sessions this operator has routed requests into. Each row shows the channel that accepted the request and the session key it reused.",
-                "Enter opens the session · ↑/↓ moves.",
+                "[Enter] opens the session · [↑]/[↓] moves.",
             ),
         };
     };
@@ -568,17 +568,17 @@ fn operator_dialog_field_help(
         2 => (
             "Harness",
             "Agent harness used for new operator sessions, such as smith, claude, or codex.",
-            "Enter opens the picker · applies to new sessions.",
+            "[Enter] opens the picker · applies to new sessions.",
         ),
         3 => (
             "Model",
             "Optional model override passed to the harness. Leave it blank to use that harness's default model.",
-            "Enter opens the picker · applies to new sessions.",
+            "[Enter] opens the picker · applies to new sessions.",
         ),
         4 => (
             "Session mode",
             "Headless sessions use structured events. Interactive sessions run the native Codex or Claude PTY and deliver replies through a session-bound tool.",
-            "Enter opens the picker · applies to new sessions.",
+            "[Enter] opens the picker · applies to new sessions.",
         ),
         5 => (
             "Working directory",
@@ -600,13 +600,13 @@ fn operator_dialog_field_help(
             (
                 "Routing",
                 explanation,
-                "←/→ or Space cycles · applies to the next request.",
+                "[←]/[→] or [Space] cycles · applies to the next request.",
             )
         }
         7 => (
             "State",
             "Serving starts the listener. Pausing stops it and releases its port; callers get 503 until it resumes.",
-            "Space or ←/→ toggles · applies immediately.",
+            "[Space] or [←]/[→] toggles · applies immediately.",
         ),
         _ => ("Operator field", "", ""),
     }
@@ -1969,9 +1969,9 @@ fn render_turn_picker(f: &mut Frame, area: Rect, app: &mut App) {
     if area.height > 0 {
         let y = area.y + area.height - 1;
         let hint = if app.turn_picker_loading {
-            "Fork: loading past turns… (Enter forks from now, Esc cancels)"
+            "Fork: loading past turns… ([Enter] forks from now, [Esc] cancels)"
         } else {
-            "Fork: pick the turn to retry — or now (Enter picks, Esc cancels)"
+            "Fork: pick the turn to retry — or now ([Enter] picks, [Esc] cancels)"
         };
         f.render_widget(
             Paragraph::new(hint).style(Style::default().fg(app.theme.dim)),
@@ -2004,10 +2004,10 @@ fn render_harness_picker(f: &mut Frame, area: Rect, app: &mut App, mb: &Prompt) 
     let end = (start + visible_rows).min(entries.len());
     let name_width = entries
         .iter()
-        .map(|entry| UnicodeWidthStr::width(entry.name.as_str()))
+        .map(|entry| UnicodeWidthStr::width(entry.label().as_str()))
         .max()
         .unwrap_or(7)
-        .clamp(7, 18);
+        .clamp(7, 20);
 
     for (screen_row, entry) in entries[start..end].iter().enumerate() {
         let y = area.y + screen_row as u16;
@@ -2060,7 +2060,7 @@ fn render_harness_picker(f: &mut Frame, area: Rect, app: &mut App, mb: &Prompt) 
         let gap = (area.width as usize).saturating_sub(used);
         let line = format!(
             "{marker}{name:<name_width$}  {description}{gap}{status}",
-            name = entry.name,
+            name = entry.label(),
             gap = " ".repeat(gap),
         );
         f.render_widget(
@@ -2100,7 +2100,7 @@ fn render_harness_picker(f: &mut Frame, area: Rect, app: &mut App, mb: &Prompt) 
             } else {
                 format!("{}/{}", selected + 1, entries.len())
             };
-            format!("  {position}  ↑/↓ C-p/C-n select  Enter choose  Tab complete  Esc cancel")
+            format!("  {position}  [x] launch  [↑]/[↓] [C-p]/[C-n] select  [Enter] choose  [Tab] complete  [Esc] cancel")
         });
     let suffix_style = if mb.error.is_some() {
         Style::default().fg(app.theme.danger)
@@ -2151,51 +2151,51 @@ fn prompt_choice_suffix(intent: &PromptIntent) -> Option<Vec<PromptPart>> {
     Some(match intent {
         // Single-keypress fast path, plain y/N.
         RestartConfirm { .. } | RestartDaemonConfirm | UpgradeConfirm { .. } => vec![
-            PromptPart::Text("("),
+            PromptPart::Text("["),
             PromptPart::Choice {
                 label: "y",
                 action: Key('y'),
             },
-            PromptPart::Text("/"),
+            PromptPart::Text("]es / ["),
             PromptPart::Choice {
                 label: "N",
                 action: Key('n'),
             },
-            PromptPart::Text("): "),
+            PromptPart::Text("]o: "),
         ],
-        // Single-keypress fast path, tool approval. `a=auto-review` only
+        // Single-keypress fast path, tool approval. `[a]uto-review` only
         // appears when the daemon allowed it for this call.
         ApproveTool {
             allow_auto_review, ..
         } => {
             let mut parts = vec![
                 PromptPart::Choice {
-                    label: "y=approve",
+                    label: "[y] approve",
                     action: Key('y'),
                 },
                 PromptPart::Text("  "),
                 PromptPart::Choice {
-                    label: "n=deny",
+                    label: "[n] deny",
                     action: Key('n'),
                 },
             ];
             if *allow_auto_review {
                 parts.push(PromptPart::Text("  "));
                 parts.push(PromptPart::Choice {
-                    label: "a=auto-review",
+                    label: "[a]uto-review",
                     action: Key('a'),
                 });
             }
             parts.push(PromptPart::Text("  "));
             parts.push(PromptPart::Choice {
-                label: "f=always-approve",
+                label: "[f] always-approve",
                 action: Key('f'),
             });
             parts
         }
         // Typed-then-submit path. Canonical letters only (`d`, not the `y`
         // alias) — typing `y` still works, it just isn't a separate click
-        // target. Forks get an extra `[m] merge and archive` choice; non-forks
+        // target. Forks get an extra `[m]erge and archive` choice; non-forks
         // keep the classic delete / archive / cancel cluster.
         DeleteConfirm { is_fork, .. } => {
             let mut parts = vec![
@@ -2204,12 +2204,12 @@ fn prompt_choice_suffix(intent: &PromptIntent) -> Option<Vec<PromptPart>> {
                     label: "d",
                     action: Submit("d".to_string()),
                 },
-                PromptPart::Text("] delete (drop transcript + worktree) / ["),
+                PromptPart::Text("]elete (drop transcript + worktree) / ["),
                 PromptPart::Choice {
                     label: "a",
                     action: Submit("a".to_string()),
                 },
-                PromptPart::Text("] archive (terminate, keep, hide)"),
+                PromptPart::Text("]rchive (terminate, keep, hide)"),
             ];
             if *is_fork {
                 parts.push(PromptPart::Text(" / ["));
@@ -2217,7 +2217,7 @@ fn prompt_choice_suffix(intent: &PromptIntent) -> Option<Vec<PromptPart>> {
                     label: "m",
                     action: Submit("m".to_string()),
                 });
-                parts.push(PromptPart::Text("] merge and archive"));
+                parts.push(PromptPart::Text("]erge and archive"));
             }
             parts.push(PromptPart::Text(" / ["));
             parts.push(PromptPart::Choice {
@@ -2231,22 +2231,22 @@ fn prompt_choice_suffix(intent: &PromptIntent) -> Option<Vec<PromptPart>> {
         // cancel). `all` requires the full word so a stray keystroke can't
         // trigger the cascade — same click target.
         GroupDeleteConfirm { .. } => vec![
-            PromptPart::Text("("),
+            PromptPart::Text("(["),
             PromptPart::Choice {
                 label: "y",
                 action: Submit("y".to_string()),
             },
-            PromptPart::Text(" = orphan members / "),
+            PromptPart::Text("] orphan members / ["),
             PromptPart::Choice {
                 label: "all",
                 action: Submit("all".to_string()),
             },
-            PromptPart::Text(" = delete sessions too / "),
+            PromptPart::Text("] delete sessions too / ["),
             PromptPart::Choice {
                 label: "N",
                 action: Submit("N".to_string()),
             },
-            PromptPart::Text(" = cancel): "),
+            PromptPart::Text("] cancel): "),
         ],
         // Typed-then-submit path, plain y/N.
         ArchivedDeleteConfirm { .. }
@@ -2254,17 +2254,17 @@ fn prompt_choice_suffix(intent: &PromptIntent) -> Option<Vec<PromptPart>> {
         | MenuUnarchiveConfirm { .. }
         | OperatorDeleteConfirm { .. } => {
             vec![
-                PromptPart::Text("("),
+                PromptPart::Text("["),
                 PromptPart::Choice {
                     label: "y",
                     action: Submit("y".to_string()),
                 },
-                PromptPart::Text("/"),
+                PromptPart::Text("]es / ["),
                 PromptPart::Choice {
                     label: "N",
                     action: Submit("N".to_string()),
                 },
-                PromptPart::Text("): "),
+                PromptPart::Text("]o: "),
             ]
         }
         _ => return None,
@@ -6589,10 +6589,10 @@ fn focused_session_pane(app: &App) -> Option<WindowPaneHit> {
 /// `session_id` so generating for session A never paints on session B.
 ///
 /// Layout (one row, left → right):
-///   `[transparent][ bg " " ][ bg "✦ C-x ." ][ bg " " ][transparent]`
+///   `[transparent][ bg " " ][ bg "✦ [C-x .]" ][ bg " " ][transparent]`
 ///
 /// - **Interior spaces** (with filled bg) give the chip breathing room before
-///   the glyph and after the trailing `.` so the tint is visibly a pad, not
+///   the glyph and after the trailing `]` so the tint is visibly a pad, not
 ///   tight to the ink.
 /// - **Exterior cells** stay transparent (untouched) so session content — and
 ///   the scrollbar that shares the rightmost column — shows through, matching
@@ -6641,12 +6641,12 @@ fn render_suggest_affordances(f: &mut Frame, app: &mut App) {
         }
         // Core label is strictly this session's hand / pending, never another's.
         let core = if let Some(hand) = app.suggestion_hands.get(&session_id) {
-            format!("✦{} C-x .", 1 + hand.verbs.len())
+            format!("✦{} [C-x .]", 1 + hand.verbs.len())
         } else if app.suggest_pending_active(&session_id) {
             app.request_tick_redraw();
-            format!("{spinner} C-x . suggesting…")
+            format!("{spinner} [C-x .] suggesting…")
         } else {
-            "✦ C-x .".to_string()
+            "✦ [C-x .]".to_string()
         };
         let label = format!(" {core} ");
         let width = UnicodeWidthStr::width(label.as_str())
@@ -6704,7 +6704,7 @@ fn render_suggest_affordance_tooltip(f: &mut Frame, app: &App) {
     render_tooltip_at(
         f,
         &app.theme,
-        " Open prompt suggestions · C-x . ",
+        " Open prompt suggestions · [C-x .] ",
         hit.area.x,
         hit.area.y,
         0,
@@ -7208,11 +7208,11 @@ fn render_suggest_deck(f: &mut Frame, app: &mut App) {
     }
 
     let hint = if generate_selected {
-        "type keywords · Enter generate · ← back · Esc/C-g close"
+        "type keywords · [Enter] generate · [←] back · [Esc]/[C-g] close"
     } else if history_selected {
-        "type to search · ←/→ columns · ↑/↓ move · Enter stage · Esc/C-g close"
+        "type to search · [←]/[→] columns · [↑]/[↓] move · [Enter] stage · [Esc]/[C-g] close"
     } else {
-        "g/r generate · ←/→ columns · ↑/↓ move · Enter stage · Esc/C-g close"
+        "[g]/[r] generate · [←]/[→] columns · [↑]/[↓] move · [Enter] stage · [Esc]/[C-g] close"
     };
     f.render_widget(
         Paragraph::new(Line::styled(
@@ -8107,6 +8107,20 @@ fn operator_title_menu_action_binding(
     }
 }
 
+/// `[r]ename` when `key` is a single character that starts `label`
+/// (case-insensitive); `None` when the key must be shown whole instead.
+fn mnemonic_hint(key: &str, label: &str) -> Option<String> {
+    let mut key_chars = key.chars();
+    let (Some(k), None) = (key_chars.next(), key_chars.next()) else {
+        return None;
+    };
+    let first = label.chars().next()?;
+    if !k.is_alphanumeric() || !first.eq_ignore_ascii_case(&k) {
+        return None;
+    }
+    Some(format!("[{first}]{}", &label[first.len_utf8()..]))
+}
+
 fn render_session_title_menu_row(
     f: &mut Frame,
     area: Rect,
@@ -8123,6 +8137,17 @@ fn render_session_title_menu_row(
     f.buffer_mut()
         .set_string(content_x, row, " ".repeat(content_w), style);
 
+    // Key hints are bracketed: a single-letter key that starts the label
+    // marks it in place (`[r]ename`), anything else sits right as `[C-x r]`.
+    let (label_text, binding) = match binding {
+        Some(key) => match mnemonic_hint(key, label_text) {
+            Some(marked) => (marked, None),
+            None => (label_text.to_string(), Some(format!("[{key}]"))),
+        },
+        None => (label_text.to_string(), None),
+    };
+    let binding = binding.as_deref();
+    let label_text = label_text.as_str();
     let label_budget = binding.map_or(content_w, |binding| {
         let binding_w = UnicodeWidthStr::width(binding);
         content_w.saturating_sub(binding_w.saturating_add(1))
@@ -8406,7 +8431,7 @@ fn operator_picker_lines(
     }
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "↑/↓ C-p/C-n move · Enter choose · Esc cancel",
+        "[↑]/[↓] [C-p]/[C-n] move · [Enter] choose · [Esc] cancel",
         Style::default().fg(app.theme.dim),
     )));
     lines
@@ -8881,7 +8906,7 @@ fn render_operator_view(f: &mut Frame, area: Rect, app: &mut App, name: &str, fo
         }
         push_wrapped_operator_line(
             &mut activity,
-            "  No channels in the catalog. Press a or Enter to create an HTTP channel.",
+            "  No channels in the catalog. Press [a] or [Enter] to create an HTTP channel.",
             section.width,
             if selected {
                 Style::default()
@@ -9060,9 +9085,9 @@ fn render_operator_view(f: &mut Frame, area: Rect, app: &mut App, name: &str, fo
     } else if dialog.mode == crate::app::OperatorDialogMode::Create {
         "Enter/C-s save · Space attach · a create channel · Esc discards this draft"
     } else if unsaved.is_empty() {
-        "Enter/C-s save · Space attach · d delete channel · p publish/withdraw · o open · y copy · Esc to session list"
+        "[Enter]/[C-s] save · [Space] attach · [d]elete channel · [p]ublish/withdraw · [o]pen · [y] copy · [Esc] to session list"
     } else {
-        "Enter/C-s save · Space attach · d delete channel · p publish/withdraw · o open · y copy · Esc reverts edits"
+        "[Enter]/[C-s] save · [Space] attach · [d]elete channel · [p]ublish/withdraw · [o]pen · [y] copy · [Esc] reverts edits"
     };
     activity.push(Line::from(""));
     push_wrapped_operator_line(
@@ -9369,36 +9394,36 @@ pub(crate) fn render_operator_channel_editor(
             1 => ("Kind", "slack-personal acts through your own Slack account via Slack's hosted MCP server. Everything it posts appears as you.", "Saving starts browser OAuth on first use; no MCP command or Slack token is required."),
             2 => ("Workspace allowlist", "Optional comma-separated Slack workspace hosts, such as acme.slack.com. Empty accepts the workspace authorized in browser OAuth.", "Type workspace hosts separated by commas."),
             3 => ("Channel allowlist", "Channels the operator may read when the trigger is `all`. Unlike the bot kind, empty means no channels at all — only DMs are in scope by default.", "Type channel IDs separated by commas."),
-            4 => ("Trigger", "What enters the operator: dm forwards incoming direct messages; all also forwards every message from others in an allowlisted channel. Hosted search marks your own messages but cannot safely identify a self-DM, so they are ignored.", "Space or → next · ← previous · applies on save."),
-            5 => ("Response", "How visibly it answers: draft composes a Slack draft; auto posts immediately; auto-after waits the configured grace period and posts only if you have not replied.", "Space or → next · ← previous · applies on save."),
+            4 => ("Trigger", "What enters the operator: dm forwards incoming direct messages; all also forwards every message from others in an allowlisted channel. Hosted search marks your own messages but cannot safely identify a self-DM, so they are ignored.", "[Space] or [→] next · [←] previous · applies on save."),
+            5 => ("Response", "How visibly it answers: draft composes a Slack draft; auto posts immediately; auto-after waits the configured grace period and posts only if you have not replied.", "[Space] or [→] next · [←] previous · applies on save."),
             6 => ("Response overrides", "Optional comma-separated exact Slack channel-ID overrides. Each entry replaces the default response mode for every thread in that channel; it does not widen the trigger or allowlists.", "Type entries like C123=auto-after,D456=draft · empty inherits the default everywhere."),
             7 => ("Auto-after delay", "Seconds auto-after waits once the agent has prepared a reply. At the end it searches for your newer reply and yields if you answered first.", "Type a number of seconds, at least 1."),
-            8 => ("Disclosure", "Whether an auto-sent reply carries a marker telling recipients an agent wrote it. It posts under your name, so turning this off means undisclosed impersonation of you.", "Space or ←/→ toggles · applies on save."),
+            8 => ("Disclosure", "Whether an auto-sent reply carries a marker telling recipients an agent wrote it. It posts under your name, so turning this off means undisclosed impersonation of you.", "[Space] or [←]/[→] toggles · applies on save."),
             9 => ("Idle poll ceiling", "Longest delay between sweeps. Accepted activity resets polling to 5 seconds, then idle sweeps back off to this ceiling; traffic outside this channel's accepted scope does not keep polling hot.", "Type a number of seconds, at least 5."),
             10 => ("Thread context", "Earlier messages of a thread to read when first pulled into one; 0 reads none. This is text written by everyone in the thread, put in front of a session that holds tools.", "Type a number up to 1000 · applies on save."),
-            11 => ("State", "Disabled slack-personal channels stop their MCP backend and polling while preserving configuration.", "Space or ←/→ toggles · applies immediately."),
+            11 => ("State", "Disabled slack-personal channels stop their MCP backend and polling while preserving configuration.", "[Space] or [←]/[→] toggles · applies immediately."),
             _ => ("Channel", "", ""),
         }
     } else if editor.channel.kind == "slack" {
         match editor.selected_field {
             0 => ("Channel ID", "Stable local name for this channel; locked after creation.", "Type to edit when creating."),
-            1 => ("Kind", "Slack uses an outbound Socket Mode connection; it does not open a local listener.", "←/→ or Space switches kind when creating."),
+            1 => ("Kind", "Slack uses an outbound Socket Mode connection; it does not open a local listener.", "[←]/[→] or [Space] switches kind when creating."),
             2 => ("App token", "Slack Socket Mode app-level token. It is stored locally and never returned by the daemon.", "Paste an xapp- token; blank preserves the current token."),
             3 => ("Bot token", "Slack bot token used only to post final replies into the originating thread.", "Paste an xoxb- token; blank preserves the current token."),
             4 => ("Workspace allowlist", "Optional comma-separated Slack team IDs. Empty accepts configured events from any workspace.", "Type workspace IDs separated by commas."),
             5 => ("Channel allowlist", "Optional comma-separated Slack channel or DM IDs. Empty accepts every channel delivered to the app.", "Type channel IDs separated by commas."),
-            6 => ("Progress", "What the thread shows while a turn is still running: off says nothing, placeholder posts a message that becomes the answer, reaction marks the triggering message, both does each. Reactions need the reactions:write scope.", "Space or → next · ← previous · reconnects on save."),
-            7 => ("Follow-up", "Where the bot keeps answering once addressed: off is mentions and DMs only, thread answers later messages in a thread it was mentioned in, channel answers everything in a channel it has been mentioned in. Anything past off needs the message.channels subscription.", "Space or → next · ← previous · reconnects on save."),
+            6 => ("Progress", "What the thread shows while a turn is still running: off says nothing, placeholder posts a message that becomes the answer, reaction marks the triggering message, both does each. Reactions need the reactions:write scope.", "[Space] or [→] next · [←] previous · reconnects on save."),
+            7 => ("Follow-up", "Where the bot keeps answering once addressed: off is mentions and DMs only, thread answers later messages in a thread it was mentioned in, channel answers everything in a channel it has been mentioned in. Anything past off needs the message.channels subscription.", "[Space] or [→] next · [←] previous · reconnects on save."),
             8 => ("Thread context", "Earlier messages of a thread to read when first pulled into one; 0 reads none. Needs channels:history. This is text written by everyone in the thread, put in front of a session that holds tools — keep it at 0 where the participants are not people you would let instruct the agent.", "Type a number up to 1000 · reconnects on save."),
-            9 => ("State", "Disabled Slack channels close their Socket Mode connection while preserving configuration.", "Space or ←/→ toggles · applies immediately."),
+            9 => ("State", "Disabled Slack channels close their Socket Mode connection while preserving configuration.", "[Space] or [←]/[→] toggles · applies immediately."),
             _ => ("Channel", "", ""),
         }
     } else {
         match editor.selected_field {
             0 => ("Channel ID", "Stable name for this channel. It becomes part of the operator's local configuration and is locked after creation.", "Type to edit when creating."),
-            1 => ("Kind", "HTTP binds a bearer-authenticated loopback endpoint; Slack connects outbound with Socket Mode.", "←/→ or Space switches kind when creating."),
+            1 => ("Kind", "HTTP binds a bearer-authenticated loopback endpoint; Slack connects outbound with Socket Mode.", "[←]/[→] or [Space] switches kind when creating."),
             2 => ("HTTP port", "Loopback TCP port for this channel. No two HTTP channels may share a port.", "Type a port · rebinds immediately."),
-            3 => ("State", "Disabled channels remain configured but release their port and stop accepting requests.", "Space or ←/→ toggles · applies immediately."),
+            3 => ("State", "Disabled channels remain configured but release their port and stop accepting requests.", "[Space] or [←]/[→] toggles · applies immediately."),
             _ => ("Channel", "", ""),
         }
     };
@@ -9434,11 +9459,11 @@ pub(crate) fn render_operator_channel_editor(
     }
     f.render_widget(Paragraph::new(help).wrap(Wrap { trim: false }), columns[2]);
     let footer = if editor.mode == crate::app::OperatorChannelDialogMode::Create {
-        "C-s save · Esc back"
+        "[C-s] save · [Esc] back"
     } else if editor.channel.kind == "http" {
-        "C-s save · C-r rotate credential · C-d delete · Esc back"
+        "[C-s] save · [C-r] rotate credential · [C-d] delete · [Esc] back"
     } else {
-        "C-s save · C-d delete · Esc back"
+        "[C-s] save · [C-d] delete · [Esc] back"
     };
     let footer_y = area.bottom().saturating_sub(1);
     f.render_widget(
@@ -9503,10 +9528,10 @@ fn render_empty_session_state(f: &mut Frame, area: Rect, app: &mut App) {
     // must not hide among them. `t` stays bound; the CTA label is the
     // clickable affordance.
     let shortcut_rows = [
-        (6_u16, 2_u16, "C-x C-f", KeyAction::OpenNewSession),
-        (7_u16, 2_u16, "C-x x", KeyAction::OpenCommandPalette),
-        (8_u16, 2_u16, "?", KeyAction::ToggleHelp),
-        (9_u16, 2_u16, "C-x C-c", KeyAction::Quit),
+        (6_u16, 2_u16, "[C-x C-f]", KeyAction::OpenNewSession),
+        (7_u16, 2_u16, "[C-x x]", KeyAction::OpenCommandPalette),
+        (8_u16, 2_u16, "[?]", KeyAction::ToggleHelp),
+        (9_u16, 2_u16, "[C-x C-c]", KeyAction::Quit),
         (
             4_u16,
             2_u16,
@@ -9578,31 +9603,31 @@ fn render_empty_session_state(f: &mut Frame, area: Rect, app: &mut App) {
                     })
                 },
             ),
-            Span::styled("  — or press t", Style::default().fg(app.theme.dim)),
+            Span::styled("  — or press [t]", Style::default().fg(app.theme.dim)),
         ]),
         Line::raw(""),
         Line::from(vec![
             Span::raw("  "),
             Span::styled(
-                "C-x C-f",
+                "[C-x C-f]",
                 if hovered[0] { hover_style } else { label_style },
             ),
             Span::raw("  create a session"),
         ]),
         Line::from(vec![
             Span::raw("  "),
-            Span::styled("C-x x", if hovered[1] { hover_style } else { label_style }),
+            Span::styled("[C-x x]", if hovered[1] { hover_style } else { label_style }),
             Span::raw("    open the Minibuffer"),
         ]),
         Line::from(vec![
             Span::raw("  "),
-            Span::styled("?", if hovered[2] { hover_style } else { label_style }),
+            Span::styled("[?]", if hovered[2] { hover_style } else { label_style }),
             Span::raw("        show shortcuts and concepts"),
         ]),
         Line::from(vec![
             Span::raw("  "),
             Span::styled(
-                "C-x C-c",
+                "[C-x C-c]",
                 if hovered[3] { hover_style } else { label_style },
             ),
             Span::raw("  exit TUI"),
@@ -10275,7 +10300,7 @@ fn render_inline_widget_header_affordances(
     if area.width < 16 || area.height == 0 {
         return;
     }
-    let hint = " Esc closes ";
+    let hint = " [Esc] closes ";
     let close = " x ";
     let close_w = UnicodeWidthStr::width(close) as u16;
     let hint_w = UnicodeWidthStr::width(hint) as u16;
@@ -12945,10 +12970,10 @@ fn render_modeline(f: &mut Frame, area: Rect, app: &mut App) {
     let empty_hint_segments: &[(&str, KeyAction)] =
         if s.is_none() && app.list_items().is_empty() && status.is_empty() {
             &[
-                ("new: C-x C-f", KeyAction::OpenNewSession),
-                ("help: ?", KeyAction::ToggleHelp),
-                ("palette: C-x x", KeyAction::OpenCommandPalette),
-                ("tour: t", KeyAction::StartTutorial),
+                ("new: [C-x C-f]", KeyAction::OpenNewSession),
+                ("help: [?]", KeyAction::ToggleHelp),
+                ("palette: [C-x x]", KeyAction::OpenCommandPalette),
+                ("tour: [t]", KeyAction::StartTutorial),
             ]
         } else {
             &[]
@@ -13061,7 +13086,7 @@ fn render_modeline(f: &mut Frame, area: Rect, app: &mut App) {
         chord = if app.chord_label.is_empty() {
             String::new()
         } else {
-            format!("({})  ", app.chord_label)
+            format!("[{}]  ", app.chord_label)
         },
     );
     let modeline_post_hint = format!("{status}{conn} ", status = status);
@@ -13839,7 +13864,7 @@ fn render_modeline_brand_tooltip(f: &mut Frame, app: &App) {
     let label = if app.is_minibuffer_panel_open() {
         " Minibuffer — click to close "
     } else {
-        " Minibuffer — click to open (C-x x) "
+        " Minibuffer — click to open [C-x x] "
     };
     render_button_tooltip(
         f,
@@ -13948,17 +13973,17 @@ fn minibuffer_panel_height(preferred: Option<u16>, total_h: u16) -> u16 {
 fn minibuffer_hint_label(action: KeyAction, profile: Profile) -> &'static str {
     use KeyAction::*;
     match (action, profile) {
-        (OpenCommandPalette, Profile::Vim) => ": minibuffer",
-        (OpenCommandPalette, Profile::Emacs) => "C-x x minibuffer",
-        (OpenNewSession, Profile::Vim) => "o new",
-        (OpenNewSession, Profile::Emacs) => "C-x C-f new",
-        (OpenFork, Profile::Vim) => "f fork",
-        (OpenFork, Profile::Emacs) => "C-x f fork",
-        (OpenDiff, Profile::Vim) => "g d diff",
-        (OpenDiff, Profile::Emacs) => "C-x d diff",
-        (OpenRename, Profile::Vim) => "r rename",
-        (OpenRename, Profile::Emacs) => "C-x r rename",
-        (OpenSwitchSession, _) => "C-x b switch",
+        (OpenCommandPalette, Profile::Vim) => "[:] minibuffer",
+        (OpenCommandPalette, Profile::Emacs) => "[C-x x] minibuffer",
+        (OpenNewSession, Profile::Vim) => "[o] new",
+        (OpenNewSession, Profile::Emacs) => "[C-x C-f] new",
+        (OpenFork, Profile::Vim) => "[f]ork",
+        (OpenFork, Profile::Emacs) => "[C-x f] fork",
+        (OpenDiff, Profile::Vim) => "[g d] diff",
+        (OpenDiff, Profile::Emacs) => "[C-x d] diff",
+        (OpenRename, Profile::Vim) => "[r]ename",
+        (OpenRename, Profile::Emacs) => "[C-x r] rename",
+        (OpenSwitchSession, _) => "[C-x b] switch",
         _ => "?",
     }
 }
@@ -13967,10 +13992,10 @@ fn minibuffer_hint_label(action: KeyAction, profile: Profile) -> &'static str {
 /// would zoom in or out, so it doesn't fit `minibuffer_hint_label`'s table.
 fn zoom_hint_label(profile: Profile, unzoom: bool) -> &'static str {
     match (profile, unzoom) {
-        (Profile::Vim, true) => "z unzoom",
-        (Profile::Vim, false) => "z zoom",
-        (Profile::Emacs, true) => "C-x z unzoom",
-        (Profile::Emacs, false) => "C-x z zoom",
+        (Profile::Vim, true) => "[z] unzoom",
+        (Profile::Vim, false) => "[z]oom",
+        (Profile::Emacs, true) => "[C-x z] unzoom",
+        (Profile::Emacs, false) => "[C-x z] zoom",
     }
 }
 
@@ -14055,9 +14080,9 @@ fn render_prompt(f: &mut Frame, area: Rect, app: &mut App) {
                     minibuffer_hint_label(KeyAction::OpenCommandPalette, profile),
                     KeyAction::OpenCommandPalette,
                 ),
-                ("C-x Space playbook", KeyAction::OpenPlaybook),
+                ("[C-x Space] playbook", KeyAction::OpenPlaybook),
                 (zoom_hint_label(profile, true), KeyAction::ToggleZoom),
-                ("C-x o list", KeyAction::SwitchFocus),
+                ("[C-x o] list", KeyAction::SwitchFocus),
             ],
         ),
         ZoomMode::List => (
@@ -14067,9 +14092,9 @@ fn render_prompt(f: &mut Frame, area: Rect, app: &mut App) {
                     minibuffer_hint_label(KeyAction::OpenCommandPalette, profile),
                     KeyAction::OpenCommandPalette,
                 ),
-                ("C-x Space playbook", KeyAction::OpenPlaybook),
+                ("[C-x Space] playbook", KeyAction::OpenPlaybook),
                 (zoom_hint_label(profile, true), KeyAction::ToggleZoom),
-                ("C-x o view", KeyAction::SwitchFocus),
+                ("[C-x o] view", KeyAction::SwitchFocus),
             ],
         ),
         ZoomMode::None => (
@@ -14079,7 +14104,7 @@ fn render_prompt(f: &mut Frame, area: Rect, app: &mut App) {
                     minibuffer_hint_label(KeyAction::OpenCommandPalette, profile),
                     KeyAction::OpenCommandPalette,
                 ),
-                ("C-x Space playbook", KeyAction::OpenPlaybook),
+                ("[C-x Space] playbook", KeyAction::OpenPlaybook),
                 (zoom_hint_label(profile, false), KeyAction::ToggleZoom),
             ],
         ),
@@ -14127,7 +14152,7 @@ fn render_prompt(f: &mut Frame, area: Rect, app: &mut App) {
     let mut segments: Vec<(&str, KeyAction)> = (0..shown)
         .map(|i| pool[(app.prompt_hint_offset + i) % pool.len()])
         .collect();
-    segments.push(("help", KeyAction::ToggleHelp));
+    segments.push(("[?] help", KeyAction::ToggleHelp));
 
     let mouse = app.mouse_pos;
     let base_style = Style::default().fg(app.theme.dim);
@@ -14219,7 +14244,7 @@ fn render_help(f: &mut Frame, area: Rect, app: &mut App) -> Rect {
     };
     f.render_widget(Clear, outer);
     let title = if max_scroll > 0 {
-        " help (any key to close, ↑/↓ scroll) "
+        " help (any key to close, [↑]/[↓] scroll) "
     } else {
         " help (any key to close) "
     };
@@ -14524,9 +14549,9 @@ fn render_configure_diagnosis(
 
 fn render_configure_footer(f: &mut Frame, area: Rect, app: &App, tab: ConfigureTab) {
     let hint = match tab {
-        ConfigureTab::Harnesses => "↑/↓ select   ←/→ switch tab   Esc close",
-        ConfigureTab::SmithAuth => "↑/↓ select   ←/→ switch tab   Enter pick   Esc close",
-        ConfigureTab::Features => "↑/↓ select   ←/→ switch tab   Esc close",
+        ConfigureTab::Harnesses => "[↑]/[↓] select   [←]/[→] switch tab   [Esc] close",
+        ConfigureTab::SmithAuth => "[↑]/[↓] select   [←]/[→] switch tab   [Enter] pick   [Esc] close",
+        ConfigureTab::Features => "[↑]/[↓] select   [←]/[→] switch tab   [Esc] close",
     };
     f.render_widget(
         Paragraph::new(Line::from(Span::styled(
@@ -14551,70 +14576,70 @@ emacs keymap (default; CONSTRUCT_KEYMAP=vim for vim profile)
     A session is one live task or terminal that construct keeps in the list.
     A harness is the runtime for a session: smith, codex, claude, or shell.
     The left pane selects sessions; the right pane shows the selected session.
-    Use C-x C-f to create a session, then choose a harness.
-    Use C-x x for the command palette when you forget a shortcut.
+    Use [C-x C-f] to create a session, then choose a harness.
+    Use [C-x x] for the command palette when you forget a shortcut.
 
   focus + view
-    C-x o           other window (list → windows → list)
-    C-x Tab         toggle session list ⇄ split view
-    M-1..M-9        focus the split pane wearing that number (M-0: session list)
-    C-1..C-9 / C-0  same (needs a kitty-protocol terminal)
-    Shift+arrow     focus the adjacent split window (in a split layout)
-    C-x arrow       same — reliable alias where the terminal eats Shift+up/down
-    RET (on list)   focus the selected session's view
-    C-x 2 / C-x 3   split current main window below / right
-    C-x 0 / C-x 1   delete current window / delete other windows
-    C-x ^           make current window taller
-    C-x } / C-x {   make current window wider / narrower
-    C-x t           toggle chat ↔ terminal view
-    C-x z           zoom: fill the screen with the session view
-    C-n / down      next session
-    C-p / up        prev session
+    [C-x o]               other window (list → windows → list)
+    [C-x Tab]             toggle session list ⇄ split view
+    [M-1..9]              focus the split pane wearing that number ([M-0]: session list)
+    [C-1..9] / [C-0]      same (needs a kitty-protocol terminal)
+    [Shift+arrow]         focus the adjacent split window (in a split layout)
+    [C-x arrow]           same — reliable alias where the terminal eats Shift+up/down
+    [RET] (on list)       focus the selected session's view
+    [C-x 2] / [C-x 3]     split current main window below / right
+    [C-x 0] / [C-x 1]     delete current window / delete other windows
+    [C-x ^]               make current window taller
+    [C-x }] / [C-x {]     make current window wider / narrower
+    [C-x t]               toggle chat ↔ terminal view
+    [C-x z]               zoom: fill the screen with the session view
+    [C-n] / [down]        next session
+    [C-p] / [up]          prev session
 
   session actions
-    C-x C-f         new session
-    C-x b           switch session (picker dialog: type to filter, ↑↓ move)
-    C-x i           send input to selected session
-    C-x k           delete selected session / project / operator (confirms)
-    C-x Space       open selected session's playbook
-    C-x C-o         focus session terminal / refocus Playbook
-    C-x d           show diff
-    C-x r           rename selected session (clears title on empty submit)
-    C-x f           fork selected session (pick a turn or now, then harness)
-    Tab (on list)   focus lineage section
-    C-x k [m]       on a fork: merge result into parent and archive
-    C-c C-c         interrupt
+    [C-x C-f]             new session
+    [C-x b]               switch session (picker dialog: type to filter, ↑↓ move)
+    [C-x i]               send input to selected session
+    [C-x k]               delete selected session / project / operator (confirms)
+    [C-x Space]           open selected session's playbook
+    [C-x C-o]             focus session terminal / refocus Playbook
+    [C-x d]               show diff
+    [C-x r]               rename selected session (clears title on empty submit)
+    [C-x f]               fork selected session (pick a turn or now, then harness)
+    [Tab] (on list)       focus lineage section
+    [C-x k] [m]           on a fork: merge result into parent and archive
+    [C-c C-c]             interrupt
 
   scrollback
-    C-x [ / C-x ]   scroll page up/down
-    C-v / M-v       scroll page down/up
-    g g / G         scroll top / bottom
+    [C-x [] / [C-x ]]     scroll page up/down
+    [C-v] / [M-v]         scroll page down/up
+    [g g] / [G]           scroll top / bottom
 
   reorder list
-    C-x C-p         move selected session up   (Meta-free, works everywhere)
-    C-x C-n         move selected session down
-    Shift-up/down   same, when the list is focused, in terminals that pass
-                    Shift to arrows (iTerm2/WezTerm/Alacritty yes; macOS
-                    Terminal.app no). In a focused split, Shift+arrow moves
-                    focus between panes instead (see focus + view).
+    [C-x C-p]             move selected session up   (Meta-free, works everywhere)
+    [C-x C-n]             move selected session down
+    [Shift-up/down]       same, when the list is focused, in terminals that pass
+                          Shift to arrows (iTerm2/WezTerm/Alacritty yes; macOS
+                          Terminal.app no). In a focused split, Shift+arrow moves
+                          focus between panes instead (see focus + view).
 
   mouse + clipboard
-    drag text       select visible TUI text and copy to terminal clipboard
-    C-x c           toggle mouse capture off/on for native selection fallback
-    C-x v           paste local clipboard (image/file attaches; via construct ssh)
-    C-x .           suggestion deck (next-prompt picks + prompt history)
+    drag text             select visible TUI text and copy to terminal clipboard
+    [C-x c]               toggle mouse capture off/on for native selection fallback
+    [C-x v]               paste local clipboard (image/file attaches; via construct ssh)
+    [C-x .]               suggestion deck (next-prompt picks + prompt history)
 
   global
-    M-x / C-x x     command palette (C-x x is Meta-free)
-                    palette commands: new fork send delete rename copy-id playbook diff border
-                                      theme zoom interrupt refresh harnesses configure
-                                      paste help
-    ?               toggle this help
-    C-x C-c          quit
+    [M-x] / [C-x x]       command palette ([C-x x] is Meta-free)
+                          palette commands: new fork send delete rename copy-id
+                                            playbook diff border theme zoom interrupt
+                                            refresh harnesses configure paste help
+    [?]                   toggle this help
+    [C-x C-c]             quit
 
 When the right pane is showing a PTY-backed session (shell / interactive
 claude / interactive codex) and focus is on the view, keystrokes go to the
-child. `C-x` is the escape prefix — start any `C-x …` chord above to run
+child. [C-x] is the escape prefix — start any [C-x …] chord above to run
 an construct command without changing focus.
 ";
 
@@ -14626,73 +14651,73 @@ vim keymap (CONSTRUCT_KEYMAP=vim; unset for emacs profile)
     The left pane selects sessions; the right pane shows the selected session.
     NORMAL runs construct commands. INSERT types into a live terminal session.
     Unbound NORMAL keys are ignored; they are never sent to the child PTY.
-    Use o to create a session, then choose a harness (n also works).
-    Use : for the command palette when you forget a shortcut.
+    Use [o] to create a session, then choose a harness ([n] also works).
+    Use [:] for the command palette when you forget a shortcut.
 
   focus + view
-    C-x o / C-w w   other window (list → windows → list)
-    C-x Tab         toggle session list ⇄ split view
-    C-w 1..9 / C-w 0  focus the pane wearing that number / the session list
-    M-1..M-9, M-0   same, one keystroke (C-digit needs a kitty-protocol terminal)
-    Shift+arrow     focus adjacent split (C-x arrow is reliable alias)
-    C-w h/j/k/l     focus split window left/down/up/right
-    i / a / RET     enter INSERT when the selected view is a live terminal
-    C-x 2/3 C-w s/v split current main window below / right
-    C-x 0/1 C-w c/o delete current window / delete other windows
-    C-x ^ / C-w +   make current window taller
-    C-x }/{ C-w>/<  make current window wider / narrower
-    v / C-x t       toggle chat ↔ terminal view
-    z / C-w z       zoom: fill the screen with the session view
-    j/k/down/up     next/prev session
+    [C-x o] / [C-w w]     other window (list → windows → list)
+    [C-x Tab]             toggle session list ⇄ split view
+    [C-w 1..9] / [C-w 0]  focus the pane wearing that number / the session list
+    [M-1..9], [M-0]       same, one keystroke ([C-digit] needs kitty protocol)
+    [Shift+arrow]         focus adjacent split ([C-x arrow] is reliable alias)
+    [C-w h/j/k/l]         focus split window left/down/up/right
+    [i] / [a] / [RET]     enter INSERT when the selected view is a live terminal
+    [C-x 2/3] [C-w s/v]   split current main window below / right
+    [C-x 0/1] [C-w c/o]   delete current window / delete other windows
+    [C-x ^] / [C-w +]     make current window taller
+    [C-x }/{] [C-w >/<]   make current window wider / narrower
+    [v] / [C-x t]         toggle chat ↔ terminal view
+    [z] / [C-w z]         zoom: fill the screen with the session view
+    [j]/[k]/[down]/[up]   next/prev session
 
   session actions
-    o / n           new session
-    / / C-x b       switch session (picker dialog: type to filter, ↑↓ move)
-    I               send input to selected session
-    d d             delete selected session (confirms; kills if running)
-    C-x Space       open selected session's playbook
-    C-x C-o         focus session terminal / refocus Playbook
-    g d             show diff
-    r               rename selected session (clears title on empty submit)
-    f               fork selected session (pick a turn or now, then harness)
-    Tab (on list)   focus lineage section
-    m               merge the selected fork (take result, or discard)
-    C-c             interrupt
+    [o] / [n]             new session
+    [/] / [C-x b]         switch session (picker dialog: type to filter, ↑↓ move)
+    [I]                   send input to selected session
+    [d d]                 delete selected session (confirms; kills if running)
+    [C-x Space]           open selected session's playbook
+    [C-x C-o]             focus session terminal / refocus Playbook
+    [g d]                 show diff
+    [r]                   rename selected session (clears title on empty submit)
+    [f]                   fork selected session (pick a turn or now, then harness)
+    [Tab] (on list)       focus lineage section
+    [m]                   merge the selected fork (take result, or discard)
+    [C-c]                 interrupt
 
   scrollback
-    C-x [ / C-x ]   scroll page up/down
-    C-f / C-b       scroll page down/up
-    C-d / C-u       scroll half page down/up
-    C-e / C-y       scroll line down/up
-    g g / G         scroll top / bottom
+    [C-x [] / [C-x ]]     scroll page up/down
+    [C-f] / [C-b]         scroll page down/up
+    [C-d] / [C-u]         scroll half page down/up
+    [C-e] / [C-y]         scroll line down/up
+    [g g] / [G]           scroll top / bottom
 
   reorder list
-    C-x C-p         move selected session up   (Meta-free, works everywhere)
-    C-x C-n         move selected session down
-    K / J           move selected session up/down
-    Shift-up/down   same when the list is focused and terminal passes Shift
+    [C-x C-p]             move selected session up   (Meta-free, works everywhere)
+    [C-x C-n]             move selected session down
+    [K] / [J]             move selected session up/down
+    [Shift-up/down]       same when the list is focused and terminal passes Shift
 
   mouse + clipboard
-    drag text       select visible TUI text and copy to terminal clipboard
-    C-x c           toggle mouse capture off/on for native selection fallback
-    C-x v           paste local clipboard (image/file attaches; via construct ssh)
-    C-x .           suggestion deck (next-prompt picks + prompt history)
+    drag text             select visible TUI text and copy to terminal clipboard
+    [C-x c]               toggle mouse capture off/on for native selection fallback
+    [C-x v]               paste local clipboard (image/file attaches; via construct ssh)
+    [C-x .]               suggestion deck (next-prompt picks + prompt history)
 
   global
-    :               command palette
-                    palette commands: new fork send delete rename copy-id playbook diff border
-                                      theme zoom interrupt refresh harnesses configure
-                                      paste help
-    A               cycle approval mode
-    ?               toggle this help
-    C-x C-c         quit
-    Z Z             quit
+    [:]                   command palette
+                          palette commands: new fork send delete rename copy-id
+                                            playbook diff border theme zoom interrupt
+                                            refresh harnesses configure paste help
+    [A]                   cycle approval mode
+    [?]                   toggle this help
+    [C-x C-c]             quit
+    [Z Z]                 quit
 
-In NORMAL, construct owns the keyboard. Use i/a/RET to enter INSERT on a live
-terminal session; i/a opens send-input when the selected session has no live
-terminal. In INSERT, keys go to the child PTY except `C-x`, which starts a
-construct escape chord. Use `C-x C-x` to send a literal `C-x`, and `C-\\ C-n`
-to return to NORMAL. Esc always goes to the child PTY.
+In NORMAL, construct owns the keyboard. Use [i]/[a]/[RET] to enter INSERT on a live
+terminal session; [i]/[a] opens send-input when the selected session has no live
+terminal. In INSERT, keys go to the child PTY except [C-x], which starts a
+construct escape chord. Use [C-x C-x] to send a literal C-x, and [C-\\ C-n]
+to return to NORMAL. [Esc] always goes to the child PTY.
 ";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23551,11 +23576,11 @@ fn render_remote_choose<'a>(
     let segs: Vec<RemoteHintSeg> = if c.options.len() > 1 {
         vec![
             RemoteHintSeg {
-                text: "←/→ select · ",
+                text: "[←]/[→] select · ",
                 action: None,
             },
             RemoteHintSeg {
-                text: "Enter",
+                text: "[Enter]",
                 action: Some(RemoteControlHitAction::Key(
                     crossterm::event::KeyCode::Enter,
                 )),
@@ -23565,7 +23590,7 @@ fn render_remote_choose<'a>(
                 action: None,
             },
             RemoteHintSeg {
-                text: "Esc",
+                text: "[Esc]",
                 action: Some(RemoteControlHitAction::Key(crossterm::event::KeyCode::Esc)),
             },
             RemoteHintSeg {
@@ -23576,7 +23601,7 @@ fn render_remote_choose<'a>(
     } else {
         vec![
             RemoteHintSeg {
-                text: "Enter",
+                text: "[Enter]",
                 action: Some(RemoteControlHitAction::Key(
                     crossterm::event::KeyCode::Enter,
                 )),
@@ -23586,7 +23611,7 @@ fn render_remote_choose<'a>(
                 action: None,
             },
             RemoteHintSeg {
-                text: "Esc",
+                text: "[Esc]",
                 action: Some(RemoteControlHitAction::Key(crossterm::event::KeyCode::Esc)),
             },
             RemoteHintSeg {
@@ -23667,7 +23692,7 @@ fn render_remote_name<'a>(
         app,
         &[
             RemoteHintSeg {
-                text: "Enter",
+                text: "[Enter]",
                 action: Some(RemoteControlHitAction::Key(
                     crossterm::event::KeyCode::Enter,
                 )),
@@ -23677,7 +23702,7 @@ fn render_remote_name<'a>(
                 action: None,
             },
             RemoteHintSeg {
-                text: "Esc",
+                text: "[Esc]",
                 action: Some(RemoteControlHitAction::Key(crossterm::event::KeyCode::Esc)),
             },
             RemoteHintSeg {
@@ -23747,17 +23772,17 @@ fn render_remote_starting<'a>(
             app,
             &[
                 RemoteHintSeg {
-                    text: "o",
+                    text: "[o]",
                     action: Some(RemoteControlHitAction::Key(
                         crossterm::event::KeyCode::Char('o'),
                     )),
                 },
                 RemoteHintSeg {
-                    text: " open login again · ",
+                    text: "pen login again · ",
                     action: None,
                 },
                 RemoteHintSeg {
-                    text: "Esc",
+                    text: "[Esc]",
                     action: Some(RemoteControlHitAction::Key(crossterm::event::KeyCode::Esc)),
                 },
                 RemoteHintSeg {
@@ -23785,7 +23810,7 @@ fn render_remote_starting<'a>(
             app,
             &[
                 RemoteHintSeg {
-                    text: "Esc",
+                    text: "[Esc]",
                     action: Some(RemoteControlHitAction::Key(crossterm::event::KeyCode::Esc)),
                 },
                 RemoteHintSeg {
@@ -23886,11 +23911,11 @@ fn render_remote_ok<'a>(
         app,
         &[
             RemoteHintSeg {
-                text: "←/→ select · ",
+                text: "[←]/[→] select · ",
                 action: None,
             },
             RemoteHintSeg {
-                text: "Enter",
+                text: "[Enter]",
                 action: Some(RemoteControlHitAction::Key(
                     crossterm::event::KeyCode::Enter,
                 )),
@@ -23900,7 +23925,7 @@ fn render_remote_ok<'a>(
                 action: None,
             },
             RemoteHintSeg {
-                text: "Esc",
+                text: "[Esc]",
                 action: Some(RemoteControlHitAction::Key(crossterm::event::KeyCode::Esc)),
             },
             RemoteHintSeg {
@@ -23940,7 +23965,7 @@ fn render_remote_err<'a>(
 ) -> RemotePopupBody<'a> {
     let label = provider.label();
     let header = format!("Could not start the {label} tunnel:");
-    let keys = "← back to options · Esc close";
+    let keys = "[←] back to options · [Esc] close";
 
     // `Left`/`Backspace` walks back to the chooser (see the `Err` arm of
     // `handle_remote_control_key`), so the "← back to options" hint dispatches
@@ -23949,7 +23974,7 @@ fn render_remote_err<'a>(
         app,
         &[
             RemoteHintSeg {
-                text: "← back to options",
+                text: "[←] back to options",
                 action: Some(RemoteControlHitAction::Key(crossterm::event::KeyCode::Left)),
             },
             RemoteHintSeg {
@@ -23957,7 +23982,7 @@ fn render_remote_err<'a>(
                 action: None,
             },
             RemoteHintSeg {
-                text: "Esc",
+                text: "[Esc]",
                 action: Some(RemoteControlHitAction::Key(crossterm::event::KeyCode::Esc)),
             },
             RemoteHintSeg {

@@ -806,7 +806,7 @@ impl App {
             saved: operator.clone(),
             operator,
             focus: OperatorDialogFocus::Field(0),
-            note: Some("Enter saves this operator as its own TOML file.".to_string()),
+            note: Some("[Enter] saves this operator as its own TOML file.".to_string()),
             picker: None,
             picker_selected: 0,
             picker_scroll: 0,
@@ -1037,10 +1037,10 @@ impl App {
         {
             editor.confirm_delete = true;
             editor.note = Some(if attached_here {
-                "Delete this channel? Enter/y confirms; Esc/n cancels.".to_string()
+                "Delete this channel? [Enter]/[y] confirms; [Esc]/[n] cancels.".to_string()
             } else {
                 format!(
-                    "Delete unattached channel `{}` from the catalog? Enter/y confirms; Esc/n cancels.",
+                    "Delete unattached channel `{}` from the catalog? [Enter]/[y] confirms; [Esc]/[n] cancels.",
                     editor.channel.id
                 )
             });
@@ -2174,7 +2174,7 @@ impl App {
                         if let Some(editor) = dialog.channel_editor.as_mut() {
                             editor.confirm_delete = true;
                             editor.note = Some(
-                                "Delete this channel? Enter/y confirms; Esc/n cancels.".to_string(),
+                                "Delete this channel? [Enter]/[y] confirms; [Esc]/[n] cancels.".to_string(),
                             );
                         }
                     }

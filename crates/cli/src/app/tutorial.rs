@@ -79,28 +79,28 @@ fn chord_label(action: KeyAction, profile: Profile) -> &'static str {
     use KeyAction::*;
     use Profile::*;
     match (action, profile) {
-        (OpenNewSession, Emacs) => "C-x C-f",
-        (OpenNewSession, Vim) => "o",
-        (SwitchFocus, _) => "C-x o",
-        (OpenPlaybook, _) => "C-x SPC",
-        (RunPlaybook, _) => "C-x C-r",
-        (SplitWindowBelow, Emacs) => "C-x 2",
-        (SplitWindowBelow, Vim) => "C-w s",
-        (SplitWindowRight, Emacs) => "C-x 3",
-        (SplitWindowRight, Vim) => "C-w v",
-        (DeleteWindow, Emacs) => "C-x 0",
-        (DeleteWindow, Vim) => "C-w c",
-        (DeleteOtherWindows, Emacs) => "C-x 1",
-        (DeleteOtherWindows, Vim) => "C-w o",
-        (ToggleHelp, _) => "?",
-        (Quit, _) => "C-x C-c",
-        (OpenDeleteConfirm, Emacs) => "C-x k",
-        (OpenDeleteConfirm, Vim) => "dd",
-        (NextSession, Emacs) => "C-n",
-        (NextSession, Vim) => "j",
-        (PrevSession, Emacs) => "C-p",
-        (PrevSession, Vim) => "k",
-        _ => "?",
+        (OpenNewSession, Emacs) => "[C-x C-f]",
+        (OpenNewSession, Vim) => "[o]",
+        (SwitchFocus, _) => "[C-x o]",
+        (OpenPlaybook, _) => "[C-x SPC]",
+        (RunPlaybook, _) => "[C-x C-r]",
+        (SplitWindowBelow, Emacs) => "[C-x 2]",
+        (SplitWindowBelow, Vim) => "[C-w s]",
+        (SplitWindowRight, Emacs) => "[C-x 3]",
+        (SplitWindowRight, Vim) => "[C-w v]",
+        (DeleteWindow, Emacs) => "[C-x 0]",
+        (DeleteWindow, Vim) => "[C-w c]",
+        (DeleteOtherWindows, Emacs) => "[C-x 1]",
+        (DeleteOtherWindows, Vim) => "[C-w o]",
+        (ToggleHelp, _) => "[?]",
+        (Quit, _) => "[C-x C-c]",
+        (OpenDeleteConfirm, Emacs) => "[C-x k]",
+        (OpenDeleteConfirm, Vim) => "[dd]",
+        (NextSession, Emacs) => "[C-n]",
+        (NextSession, Vim) => "[j]",
+        (PrevSession, Emacs) => "[C-p]",
+        (PrevSession, Vim) => "[k]",
+        _ => "[?]",
     }
 }
 
@@ -429,7 +429,7 @@ impl TutorialState {
 
 fn step1_lines(phase: Step1Phase, profile: Profile) -> Vec<TutorialLine> {
     let mut lines = vec![
-        vec![t("A chord like C-x C-f: hold Ctrl, tap X,")],
+        vec![t("A chord like [C-x C-f]: hold Ctrl, tap X,")],
         vec![t("let go, then (still holding Ctrl) tap F.")],
         vec![],
     ];
@@ -437,18 +437,18 @@ fn step1_lines(phase: Step1Phase, profile: Profile) -> Vec<TutorialLine> {
         Step1Phase::AwaitCtrlX => {
             lines.push(vec![
                 t("Try it, press "),
-                k("Ctrl+X", KeyAction::TutorialNudge),
+                k("[Ctrl+X]", KeyAction::TutorialNudge),
                 t(" now."),
             ]);
         }
         Step1Phase::AwaitCancel => {
             lines.push(vec![
                 t("Now press "),
-                k("Ctrl+G (or Esc)", KeyAction::TutorialNudge),
+                k("[Ctrl+G] (or [Esc])", KeyAction::TutorialNudge),
                 t(" to cancel it."),
             ]);
-            lines.push(vec![t("C-g or Esc backs out of anything half-typed:")]);
-            lines.push(vec![t("chords, prompts, pickers.")]);
+            lines.push(vec![t("[C-g] or [Esc] backs out of anything")]);
+            lines.push(vec![t("half-typed: chords, prompts, pickers.")]);
         }
         Step1Phase::AwaitNewSession => {
             lines.push(vec![
@@ -476,7 +476,7 @@ fn step2_lines(degraded: bool) -> Vec<TutorialLine> {
     } else {
         vec![
             vec![t("The picker is open. Type an agent harness")],
-            vec![t("(not shell) and press Enter — step 5 needs")],
+            vec![t("(not shell) and press [Enter] — step 5 needs")],
             vec![t("an agent behind this session.")],
         ]
     }
@@ -486,10 +486,10 @@ fn step3_lines() -> Vec<TutorialLine> {
     vec![
         vec![
             t("Focus it — click it, or press "),
-            k("Enter", KeyAction::FocusView),
+            k("[Enter]", KeyAction::FocusView),
         ],
         vec![t("then type a short message and")],
-        vec![t("press Enter to send it.")],
+        vec![t("press [Enter] to send it.")],
     ]
 }
 
@@ -507,7 +507,7 @@ fn step4_lines() -> Vec<TutorialLine> {
         vec![],
         vec![t("On the fork, ☰ enables merge and archive:")],
         vec![t("send its result back and archive the fork.")],
-        vec![t("Or C-x k then m for the same action.")],
+        vec![t("Or [C-x k] then [m] for the same action.")],
     ]
 }
 
@@ -604,7 +604,7 @@ fn step7_lines(state: &TutorialState, ctx: TutorialCardCtx) -> Vec<TutorialLine>
     // Clickable hop label: dispatches a real pane-hop (and ticks the hop
     // sub-check) so a mouse-only user can complete the row. `C-x <arrow>`
     // is bound in both profiles.
-    let hop = || k("C-x <arrow>", KeyAction::FocusWindowDown);
+    let hop = || k("[C-x <arrow>]", KeyAction::FocusWindowDown);
     if state.degraded {
         return vec![
             step7_split_line(profile),
@@ -687,14 +687,14 @@ fn step8_lines(profile: Profile, list_focused: bool) -> Vec<TutorialLine> {
         ],
     ];
     if !list_focused {
-        lines.push(vec![t("(focus is in the view now, so ? would")]);
-        lines.push(vec![t("just be typed there — C-x o first)")]);
+        lines.push(vec![t("(focus is in the view now, so [?] would")]);
+        lines.push(vec![t("just be typed there — [C-x o] first)")]);
     }
     lines.push(vec![t(format!(
         "{} quits — don't press it now!",
         chord_label(KeyAction::Quit, profile)
     ))]);
-    lines.push(vec![t("(C-g or Esc still backs out, as in step 1.)")]);
+    lines.push(vec![t("([C-g] or [Esc] still backs out, as in step 1.)")]);
     lines.push(vec![]);
     lines.push(vec![k("[got it]", KeyAction::TutorialNextStep)]);
     lines
@@ -876,7 +876,7 @@ impl App {
                     ) {
                         let label = chord_label(KeyAction::OpenNewSession, t.profile);
                         t.feedback = Some(format!(
-                            "that ran something else — press C-g (or Esc) and try {label} again"
+                            "that ran something else — press [C-g] (or [Esc]) and try {label} again"
                         ));
                     }
                 }
@@ -963,12 +963,12 @@ impl App {
         match t.step1_phase {
             Step1Phase::AwaitCtrlX => {
                 if is_ctrl_x && matches!(res, KeymapResult::Pending(_)) {
-                    t.feedback = Some("pending: C-x — now press C-g (or Esc) to cancel it".into());
+                    t.feedback = Some("pending: [C-x] — now press [C-g] (or [Esc]) to cancel it".into());
                     t.step1_phase = Step1Phase::AwaitCancel;
                     t.touch_progress();
                 } else if matches!(res, KeymapResult::Unhandled) {
                     t.feedback = Some(format!(
-                        "you pressed {} — hold Ctrl and tap X (C-x) to start",
+                        "you pressed {} — hold Ctrl and tap X ([C-x]) to start",
                         crate::keymap::format_key(&key)
                     ));
                 }
@@ -976,12 +976,12 @@ impl App {
             Step1Phase::AwaitCancel => {
                 if is_ctrl_g || is_escape {
                     t.feedback =
-                        Some("cancelled — C-g or Esc backs out of anything half-typed.".into());
+                        Some("cancelled — [C-g] or [Esc] backs out of anything half-typed.".into());
                     t.step1_phase = Step1Phase::AwaitNewSession;
                     t.touch_progress();
                 } else if matches!(res, KeymapResult::Unhandled) {
                     t.feedback = Some(format!(
-                        "you pressed {} — use C-g or Esc",
+                        "you pressed {} — use [C-g] or [Esc]",
                         crate::keymap::format_key(&key)
                     ));
                 }
