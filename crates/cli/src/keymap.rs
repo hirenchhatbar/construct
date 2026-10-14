@@ -283,6 +283,15 @@ impl ChordState {
     }
 }
 
+/// Strip what the kitty keyboard protocol adds beyond the legacy encoding:
+/// lock-key state (Num Lock / Caps Lock ride in the modifier field) and the
+/// Repeat kind, so a key matches the same binding however it was delivered.
+pub fn normalize_key(mut k: KeyEvent) -> KeyEvent {
+    k.state = crossterm::event::KeyEventState::NONE;
+    k.kind = crossterm::event::KeyEventKind::Press;
+    k
+}
+
 fn key(code: KeyCode) -> KeyEvent {
     KeyEvent::new(code, KeyModifiers::NONE)
 }
@@ -603,6 +612,29 @@ mod tests {
             matches!(resolve(km, keys), KeymapResult::Action(a) if a == action),
             "expected {action:?}"
         );
+    }
+
+    #[test]
+    fn lock_state_and_repeat_do_not_block_bindings() {
+        use crossterm::event::{KeyEventKind, KeyEventState};
+        let km = default_for(Profile::Emacs);
+        // `C-x C-c` as foot sends it with Num Lock on (modifier 133).
+        let num_lock = |c| {
+            normalize_key(KeyEvent::new_with_kind_and_state(
+                KeyCode::Char(c),
+                KeyModifiers::CONTROL,
+                KeyEventKind::Press,
+                KeyEventState::NUM_LOCK,
+            ))
+        };
+        assert_action(&km, vec![num_lock('x'), num_lock('c')], KeyAction::Quit);
+        let held = normalize_key(KeyEvent::new_with_kind_and_state(
+            KeyCode::Char('?'),
+            KeyModifiers::NONE,
+            KeyEventKind::Repeat,
+            KeyEventState::CAPS_LOCK,
+        ));
+        assert_action(&km, vec![held], KeyAction::ToggleHelp);
     }
 
     #[test]
