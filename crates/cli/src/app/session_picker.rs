@@ -444,12 +444,17 @@ impl App {
         true
     }
 
-    fn session_picker_backspace(&mut self) {
+    fn session_picker_backspace(&mut self, word: bool) {
         if let Some(dialog) = self.session_picker.as_mut() {
             if dialog.cursor > 0 {
-                let prev = dialog.cursor - 1;
-                let pos = byte_pos(&dialog.query, prev);
-                dialog.query.remove(pos);
+                let prev = if word {
+                    super::prompt::word_back(&dialog.query, dialog.cursor)
+                } else {
+                    dialog.cursor - 1
+                };
+                let start = byte_pos(&dialog.query, prev);
+                let end = byte_pos(&dialog.query, dialog.cursor);
+                dialog.query.drain(start..end);
                 dialog.cursor = prev;
             }
             dialog.selected = 0;
@@ -762,7 +767,7 @@ impl App {
             KeyCode::Char('e') if ctrl && !to_playbook => self.session_picker_cursor_to_edge(true),
             KeyCode::Char('k') if ctrl && !to_playbook => self.session_picker_kill_to_end(),
             KeyCode::Backspace if to_playbook => self.session_picker_playbook_backspace(),
-            KeyCode::Backspace => self.session_picker_backspace(),
+            KeyCode::Backspace => self.session_picker_backspace(alt),
             KeyCode::Char(c) if !ctrl && !alt && !super_mod && to_playbook => {
                 self.session_picker_playbook_push_char(c)
             }

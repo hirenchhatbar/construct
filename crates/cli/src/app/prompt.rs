@@ -357,6 +357,7 @@ impl App {
                 self.run_prompt_submit(intent, input).await;
                 return;
             }
+            KeyCode::Backspace if alt => kill_word_back(mb),
             KeyCode::Backspace => {
                 delete_back_char(mb);
             }
@@ -1133,7 +1134,7 @@ fn delete_forward_char(mb: &mut Prompt) {
     }
 }
 
-fn word_back(s: &str, cursor: usize) -> usize {
+pub(super) fn word_back(s: &str, cursor: usize) -> usize {
     let chars: Vec<char> = s.chars().collect();
     let mut c = cursor.min(chars.len());
     while c > 0 && !chars[c - 1].is_alphanumeric() {
@@ -1155,6 +1156,12 @@ fn word_forward(s: &str, cursor: usize) -> usize {
         c += 1;
     }
     c
+}
+
+/// Alt+Backspace for append-only fields that have no cursor.
+pub(super) fn pop_word(s: &mut String) {
+    let start = word_back(s, s.chars().count());
+    s.truncate(byte_pos(s, start));
 }
 
 fn kill_word_back(mb: &mut Prompt) {

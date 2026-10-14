@@ -489,7 +489,9 @@ impl App {
         // History is an explicit text-search surface. Once highlighted,
         // printable input stays here instead of dismissing the popup; all
         // other non-text categories retain "typing always wins".
-        if history_selected && !ctrl && !alt {
+        // Alt is let through for Backspace only (word delete).
+        let alt_bs = alt && key.code == KeyCode::Backspace;
+        if history_selected && !ctrl && (!alt || alt_bs) {
             match key.code {
                 KeyCode::Char(c) => {
                     if let Some(d) = self.suggest_deck.as_mut() {
@@ -502,7 +504,11 @@ impl App {
                 }
                 KeyCode::Backspace if !deck.history_query.is_empty() => {
                     if let Some(d) = self.suggest_deck.as_mut() {
-                        d.history_query.pop();
+                        if alt {
+                            super::prompt::pop_word(&mut d.history_query);
+                        } else {
+                            d.history_query.pop();
+                        }
                         d.card_selected = 0;
                         d.card_scroll = 0;
                     }
@@ -517,7 +523,7 @@ impl App {
         // (no →/Enter required). Enter while the right column is focused
         // submits guided (re)generation; Left / empty Backspace returns to
         // the category list without closing the deck.
-        if generate_selected && !ctrl && !alt {
+        if generate_selected && !ctrl && (!alt || alt_bs) {
             match key.code {
                 KeyCode::Char(c) => {
                     if let Some(d) = self.suggest_deck.as_mut() {
@@ -534,7 +540,11 @@ impl App {
                     if non_empty {
                         if let Some(d) = self.suggest_deck.as_mut() {
                             if let Some(q) = d.regenerate_query.as_mut() {
-                                q.pop();
+                                if alt {
+                                    super::prompt::pop_word(q);
+                                } else {
+                                    q.pop();
+                                }
                             }
                         }
                         return true;

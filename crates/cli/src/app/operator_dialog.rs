@@ -2120,6 +2120,9 @@ impl App {
             {
                 self.cycle_operator_dialog_value(false)
             }
+            KeyCode::Backspace if key.modifiers.contains(KeyModifiers::ALT) => {
+                self.edit_operator_dialog_text(super::prompt::pop_word)
+            }
             KeyCode::Backspace => self.edit_operator_dialog_text(|value| {
                 value.pop();
             }),
@@ -2337,6 +2340,9 @@ impl App {
                         editor.note = None;
                     }
                 }
+            }
+            KeyCode::Backspace if key.modifiers.contains(KeyModifiers::ALT) => {
+                self.edit_operator_channel_text(super::prompt::pop_word)
             }
             KeyCode::Backspace => self.edit_operator_channel_text(|value| {
                 value.pop();

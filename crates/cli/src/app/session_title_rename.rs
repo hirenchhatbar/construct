@@ -104,12 +104,17 @@ impl App {
         true
     }
 
-    fn session_title_rename_backspace(&mut self) {
+    fn session_title_rename_backspace(&mut self, word: bool) {
         if let Some(rename) = self.session_title_rename.as_mut() {
             if rename.cursor > 0 {
-                let prev = rename.cursor - 1;
-                let pos = byte_pos(&rename.buffer, prev);
-                rename.buffer.remove(pos);
+                let prev = if word {
+                    super::prompt::word_back(&rename.buffer, rename.cursor)
+                } else {
+                    rename.cursor - 1
+                };
+                let start = byte_pos(&rename.buffer, prev);
+                let end = byte_pos(&rename.buffer, rename.cursor);
+                rename.buffer.drain(start..end);
                 rename.cursor = prev;
             }
         }
@@ -213,7 +218,7 @@ impl App {
             KeyCode::Char('e') if ctrl => self.session_title_rename_cursor_to_edge(true),
             KeyCode::Char('d') if ctrl => self.session_title_rename_delete_forward(),
             KeyCode::Char('k') if ctrl => self.session_title_rename_kill_to_end(),
-            KeyCode::Backspace => self.session_title_rename_backspace(),
+            KeyCode::Backspace => self.session_title_rename_backspace(alt),
             KeyCode::Delete => self.session_title_rename_delete_forward(),
             KeyCode::Char(c) if !ctrl && !alt && !super_mod => {
                 self.session_title_rename_push_char(c)

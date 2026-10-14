@@ -2928,6 +2928,7 @@ impl PromptDraft {
         let alt = key.modifiers.contains(KeyModifiers::ALT);
         match key.code {
             KeyCode::Char(c) if !ctrl && !alt => self.insert(&c.to_string()),
+            KeyCode::Backspace if alt => self.delete_word_backward(),
             KeyCode::Backspace => self.backspace(),
             KeyCode::Char('h') if ctrl => self.backspace(),
             KeyCode::Delete => self.delete(),
@@ -32993,7 +32994,7 @@ mod tests {
     async fn playbook_backspace_on_checklist_deletes_single_char() {
         let (mut app, _dir, server) = empty_app().await;
         app.playbook_popup = Some(playbook_popup_for_test("s1", "* [ ]", 5));
-        app.delete_playbook_back();
+        app.delete_playbook_back(false);
         {
             let popup = app.playbook_popup.as_ref().unwrap();
             assert_eq!(
@@ -33005,7 +33006,7 @@ mod tests {
         // An empty marker-only item deletes char-wise too — no Enter-style
         // dissolve on Backspace.
         app.playbook_popup = Some(playbook_popup_for_test("s1", "- ", 2));
-        app.delete_playbook_back();
+        app.delete_playbook_back(false);
         let popup = app.playbook_popup.as_ref().unwrap();
         assert_eq!(
             popup.buffer, "-",
@@ -33019,7 +33020,7 @@ mod tests {
         let (mut app, _dir, server) = empty_app().await;
         app.playbook_popup = Some(playbook_popup_for_test("s1", "run `cargo test`", 16));
 
-        app.delete_playbook_back();
+        app.delete_playbook_back(false);
 
         let popup = app.playbook_popup.as_ref().unwrap();
         assert_eq!(popup.buffer, "run `cargo test");
@@ -33481,7 +33482,7 @@ mod tests {
         assert_eq!(app.playbook_popup.as_ref().unwrap().cursor, 3);
         assert_caret_glyph(&app, "進", 5);
 
-        app.delete_playbook_back();
+        app.delete_playbook_back(false);
         {
             let popup = app.playbook_popup.as_ref().unwrap();
             assert_eq!(popup.buffer, "計画進捗報告");
@@ -33687,7 +33688,7 @@ mod tests {
             before.chars().count() + clip.chars().count(),
         ));
 
-        app.delete_playbook_back();
+        app.delete_playbook_back(false);
         let popup = app.playbook_popup.as_ref().unwrap();
         assert_eq!(popup.buffer, "a  z");
         assert_eq!(popup.cursor, before.chars().count());
@@ -33965,7 +33966,7 @@ mod tests {
             closing_boundary,
             "clicking the hidden closing boundary resolves to its source end"
         );
-        app.delete_playbook_back();
+        app.delete_playbook_back(false);
         assert_eq!(
             app.playbook_popup.as_ref().unwrap().buffer,
             md.strip_suffix("```").unwrap(),
@@ -34030,7 +34031,7 @@ mod tests {
             unicode_width::UnicodeWidthStr::width("before 界🙂 @{session:literal}")
         );
 
-        app.delete_playbook_back();
+        app.delete_playbook_back(false);
         assert_eq!(
             app.playbook_popup.as_ref().unwrap().buffer,
             "before ```界🙂 @{session:literal} after"
@@ -39315,6 +39316,10 @@ mod tests {
         draft.insert("testx");
         assert!(draft.apply_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)));
         assert_eq!(draft.buf, "test", "plain Backspace is mirrored");
+
+        draft.insert(" word");
+        assert!(draft.apply_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::ALT)));
+        assert_eq!(draft.buf, "test ", "Alt+Backspace deletes the preceding word");
     }
 
     /// Spec 0109 "typing always wins": a key the deck doesn't use closes
@@ -51905,6 +51910,7 @@ fn encode_key_to_bytes(key: KeyEvent) -> Option<Vec<u8>> {
         KeyCode::Enter => Some(vec![b'\r']),
         KeyCode::Tab => Some(vec![b'\t']),
         KeyCode::BackTab => Some(b"\x1b[Z".to_vec()),
+        KeyCode::Backspace if alt => Some(vec![0x1b, 0x7f]),
         KeyCode::Backspace => Some(vec![0x7f]),
         KeyCode::Esc => Some(vec![0x1b]),
         KeyCode::Up => Some(b"\x1b[A".to_vec()),
@@ -52029,6 +52035,14 @@ mod drain_gate_tests {
         assert!(!should_drain_after(&key(KeyCode::Enter)));
         assert!(!should_drain_after(&key(KeyCode::Esc)));
         assert!(!should_drain_after(&key(KeyCode::Backspace)));
+    }
+
+    #[test]
+    fn alt_backspace_encodes_as_meta_del() {
+        assert_eq!(
+            super::encode_key_to_bytes(KeyEvent::new(KeyCode::Backspace, KeyModifiers::ALT)),
+            Some(vec![0x1b, 0x7f])
+        );
     }
 
     fn autofocus_key(code: KeyCode) -> KeyEvent {

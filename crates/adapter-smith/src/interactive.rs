@@ -879,6 +879,13 @@ impl LineEditor {
                         self.esc = EscState::Ss3;
                         return;
                     }
+                    // Meta-Backspace (Alt+Backspace) — kill word back.
+                    0x7f | 0x08 => {
+                        self.esc = EscState::Idle;
+                        self.kill_word_back();
+                        out.extend_from_slice(&self.redraw());
+                        return;
+                    }
                     _ => {
                         // ESC followed by something else — drop both.
                         self.esc = EscState::Idle;
@@ -1523,6 +1530,14 @@ mod tests {
         ed.feed_bytes(&[0x01]); // C-a
         ed.feed_bytes(b"\x1b[3~"); // forward Delete
         assert_eq!(ed.buf, "ell");
+    }
+
+    #[test]
+    fn meta_backspace_kills_word_back() {
+        let mut ed = editor();
+        ed.feed_bytes(b"hello world");
+        ed.feed_bytes(&[0x1b, 0x7f]);
+        assert_eq!(ed.buf, "hello ");
     }
 
     #[test]

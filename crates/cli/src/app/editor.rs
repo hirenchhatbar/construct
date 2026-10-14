@@ -720,7 +720,7 @@ impl App {
                 _ if ctrl_char == Some('s') => self.move_playbook_search_match(1),
                 _ if ctrl_char == Some('r') => self.move_playbook_search_match(-1),
                 KeyCode::Enter => self.accept_playbook_search(),
-                KeyCode::Backspace => self.delete_playbook_search_query_char(),
+                KeyCode::Backspace => self.delete_playbook_search_query_char(alt),
                 KeyCode::Char(c) if !ctrl && !alt && !super_mod => {
                     self.append_playbook_search_query_char(c)
                 }
@@ -818,10 +818,10 @@ impl App {
                 self.copy_playbook_selection_and_deactivate()
             }
             _ if ctrl_char == Some('d') => self.delete_playbook_forward(),
-            _ if ctrl_char == Some('h') => self.delete_playbook_back(),
+            _ if ctrl_char == Some('h') => self.delete_playbook_back(false),
             _ if ctrl_char == Some('k') => self.cut_playbook_line(),
             KeyCode::Enter => self.insert_playbook_newline(),
-            KeyCode::Backspace => self.delete_playbook_back(),
+            KeyCode::Backspace => self.delete_playbook_back(alt),
             KeyCode::Delete => self.delete_playbook_forward(),
             KeyCode::Left => self.move_playbook_cursor(-1),
             KeyCode::Right => self.move_playbook_cursor(1),
@@ -1882,7 +1882,7 @@ impl App {
         self.update_playbook_search_after_edit();
     }
 
-    pub(super) fn delete_playbook_search_query_char(&mut self) {
+    pub(super) fn delete_playbook_search_query_char(&mut self, word: bool) {
         {
             let Some(popup) = self.playbook_popup.as_mut() else {
                 return;
@@ -1890,7 +1890,11 @@ impl App {
             let Some(search) = popup.search.as_mut() else {
                 return;
             };
-            search.query.pop();
+            if word {
+                super::prompt::pop_word(&mut search.query);
+            } else {
+                search.query.pop();
+            }
         }
         self.update_playbook_search_after_edit();
     }
@@ -3035,7 +3039,7 @@ impl App {
         }
     }
 
-    pub(super) fn delete_playbook_back(&mut self) {
+    pub(super) fn delete_playbook_back(&mut self, word: bool) {
         let has_selection = self
             .playbook_popup
             .as_ref()
@@ -3070,6 +3074,8 @@ impl App {
             playbook_smart_clip_range_before_or_containing(&popup.buffer, popup.cursor)
         {
             (range.start, range.end)
+        } else if word {
+            (super::prompt::word_back(&popup.buffer, popup.cursor), popup.cursor)
         } else {
             (popup.cursor - 1, popup.cursor)
         };
