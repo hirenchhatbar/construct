@@ -125,7 +125,7 @@ fn model_startup_error_message(params: &SessionStartParams, error: &str) -> Stri
     let lower = error.to_lowercase();
     if lower.contains("no auto-detected smith credential") {
         msg.push_str(
-            "\n\nAction: run `/configure` in the construct TUI (or `M-x configure`) to see \
+            "\n\nAction: run `/configure` in the construct TUI (or `M-x configure` / `:configure`) to see \
              every auth method smith supports, its live status, and how to set it up — or set \
              `CONSTRUCT_SMITH_MODEL` / `--model` explicitly.",
         );
@@ -168,7 +168,7 @@ fn model_startup_error_message(params: &SessionStartParams, error: &str) -> Stri
         "\n\nsmith needs one of: `CONSTRUCT_SMITH_MODEL`, `ANTHROPIC_API_KEY`, \
          `OPENAI_API_KEY`, `GEMINI_API_KEY`, `META_API_KEY`/`MODEL_API_KEY`, `GROK_API_KEY`/`XAI_API_KEY`, \
          `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, a valid Grok OAuth login, or a local Ollama. Run `/configure` in the construct TUI \
-         (or `M-x configure`) to check status and pick one.",
+         (or `M-x configure` / `:configure`) to check status and pick one.",
     );
     msg
 }

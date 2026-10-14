@@ -467,6 +467,19 @@ fn vim() -> Keymap {
         (Chord(vec![shift_key(KeyCode::Up)]), MoveSelectedUp),
         (Chord(vec![shift_key(KeyCode::Down)]), MoveSelectedDown),
         (Chord(vec![ch(':')]), OpenCommandPalette),
+        // The emacs profile's `C-x` chords, so `C-x` is one prefix across
+        // both profiles: shared hints ("C-x x", "C-x C-f", the tour's
+        // "C-x k") stay true, and they work from INSERT where bare keys
+        // go to the child PTY.
+        (Chord(vec![ctrl('x'), ch('x')]), OpenCommandPalette),
+        (Chord(vec![ctrl('x'), ctrl('f')]), OpenNewSession),
+        (Chord(vec![ctrl('x'), ch('i')]), OpenSendInput),
+        (Chord(vec![ctrl('x'), ch('k')]), OpenDeleteConfirm),
+        (Chord(vec![ctrl('x'), ch('d')]), OpenDiff),
+        (Chord(vec![ctrl('x'), ch('r')]), OpenRename),
+        (Chord(vec![ctrl('x'), ch('f')]), OpenFork),
+        (Chord(vec![ctrl('x'), ch('z')]), ToggleZoom),
+        (Chord(vec![ctrl('x'), shift('A')]), ToggleAutomode),
         // Enter from the list focuses the selected session's view;
         // Tab stays unbound for future use.
         (Chord(vec![key(KeyCode::Enter)]), FocusView),
@@ -913,6 +926,26 @@ mod tests {
             resolve(&vim, vec![shift('F')]),
             KeymapResult::Unhandled
         ));
+    }
+
+    #[test]
+    fn emacs_c_x_chords_also_resolve_in_vim() {
+        // Shared hints (welcome screen, empty-state modeline, tooltips, the
+        // tour) print emacs `C-x` chords; every one must work in vim too.
+        let vim = default_for(Profile::Vim);
+        for (second, action) in [
+            (ch('x'), KeyAction::OpenCommandPalette),
+            (ctrl('f'), KeyAction::OpenNewSession),
+            (ch('i'), KeyAction::OpenSendInput),
+            (ch('k'), KeyAction::OpenDeleteConfirm),
+            (ch('d'), KeyAction::OpenDiff),
+            (ch('r'), KeyAction::OpenRename),
+            (ch('f'), KeyAction::OpenFork),
+            (ch('z'), KeyAction::ToggleZoom),
+            (shift('A'), KeyAction::ToggleAutomode),
+        ] {
+            assert_action(&vim, vec![ctrl('x'), second], action);
+        }
     }
 
     #[test]
