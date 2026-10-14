@@ -909,7 +909,10 @@ impl App {
             });
         } else {
             self.prompt = Some(Prompt {
-                prompt: "M-x ".to_string(),
+                prompt: match self.profile {
+                    Profile::Vim => ":".to_string(),
+                    Profile::Emacs => "M-x ".to_string(),
+                },
                 input: String::new(),
                 cursor: 0,
                 intent: PromptIntent::CommandPalette,
