@@ -40074,7 +40074,9 @@ mod tests {
     #[tokio::test]
     async fn empty_tui_renders_welcome_and_modeline_hint() {
         let (mut app, _dir, server) = empty_app().await;
-        let backend = ratatui::backend::TestBackend::new(120, 36);
+        // Wide enough that a `-dirty` build id in the right-aligned notice
+        // can't push `[t]our` out via the modeline collision guard.
+        let backend = ratatui::backend::TestBackend::new(140, 36);
         let mut terminal = ratatui::Terminal::new(backend).expect("terminal");
 
         terminal
@@ -42338,7 +42340,9 @@ mod tests {
     #[tokio::test]
     async fn tour_cta_dims_and_loses_zone_while_tour_active() {
         let (mut app, _dir, server) = empty_app().await;
-        let backend = ratatui::backend::TestBackend::new(120, 36);
+        // Wide enough that a `-dirty` build id in the right-aligned notice
+        // can't push `[t]our` out via the modeline collision guard.
+        let backend = ratatui::backend::TestBackend::new(140, 36);
         let mut terminal = ratatui::Terminal::new(backend).expect("terminal");
 
         // Baseline: no tour → both zones (card CTA + modeline segment).
