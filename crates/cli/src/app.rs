@@ -52148,16 +52148,16 @@ fn encode_key_to_bytes(key: KeyEvent) -> Option<Vec<u8>> {
         KeyCode::Backspace if alt => Some(vec![0x1b, 0x7f]),
         KeyCode::Backspace => Some(vec![0x7f]),
         KeyCode::Esc => Some(vec![0x1b]),
-        KeyCode::Up => Some(b"\x1b[A".to_vec()),
-        KeyCode::Down => Some(b"\x1b[B".to_vec()),
-        KeyCode::Right => Some(b"\x1b[C".to_vec()),
-        KeyCode::Left => Some(b"\x1b[D".to_vec()),
-        KeyCode::Home => Some(b"\x1b[H".to_vec()),
-        KeyCode::End => Some(b"\x1b[F".to_vec()),
-        KeyCode::PageUp => Some(b"\x1b[5~".to_vec()),
-        KeyCode::PageDown => Some(b"\x1b[6~".to_vec()),
-        KeyCode::Insert => Some(b"\x1b[2~".to_vec()),
-        KeyCode::Delete => Some(b"\x1b[3~".to_vec()),
+        KeyCode::Up => Some(csi_with_modifiers(key.modifiers, "1", 'A')),
+        KeyCode::Down => Some(csi_with_modifiers(key.modifiers, "1", 'B')),
+        KeyCode::Right => Some(csi_with_modifiers(key.modifiers, "1", 'C')),
+        KeyCode::Left => Some(csi_with_modifiers(key.modifiers, "1", 'D')),
+        KeyCode::Home => Some(csi_with_modifiers(key.modifiers, "1", 'H')),
+        KeyCode::End => Some(csi_with_modifiers(key.modifiers, "1", 'F')),
+        KeyCode::PageUp => Some(csi_with_modifiers(key.modifiers, "5", '~')),
+        KeyCode::PageDown => Some(csi_with_modifiers(key.modifiers, "6", '~')),
+        KeyCode::Insert => Some(csi_with_modifiers(key.modifiers, "2", '~')),
+        KeyCode::Delete => Some(csi_with_modifiers(key.modifiers, "3", '~')),
         KeyCode::F(n) => {
             let s: &[u8] = match n {
                 1 => b"\x1bOP",
@@ -52178,6 +52178,29 @@ fn encode_key_to_bytes(key: KeyEvent) -> Option<Vec<u8>> {
         }
         _ => None,
     }
+}
+
+/// xterm-style CSI for a cursor/editing key: `ESC [ <code> <final>` when
+/// unmodified (`code` "1" is dropped, giving `ESC [ D`), otherwise
+/// `ESC [ <code> ; <1 + Shift(1) + Alt(2) + Ctrl(4)> <final>` — e.g. Ctrl+Left
+/// is `ESC [ 1 ; 5 D`, which harnesses read as word-motion.
+fn csi_with_modifiers(modifiers: KeyModifiers, code: &str, final_byte: char) -> Vec<u8> {
+    let mut m = 1;
+    if modifiers.contains(KeyModifiers::SHIFT) {
+        m += 1;
+    }
+    if modifiers.contains(KeyModifiers::ALT) {
+        m += 2;
+    }
+    if modifiers.contains(KeyModifiers::CONTROL) {
+        m += 4;
+    }
+    match (m, code) {
+        (1, "1") => format!("\x1b[{final_byte}"),
+        (1, _) => format!("\x1b[{code}{final_byte}"),
+        _ => format!("\x1b[{code};{m}{final_byte}"),
+    }
+    .into_bytes()
 }
 
 fn should_autofocus_view_from_list(
@@ -52278,6 +52301,26 @@ mod drain_gate_tests {
             super::encode_key_to_bytes(KeyEvent::new(KeyCode::Backspace, KeyModifiers::ALT)),
             Some(vec![0x1b, 0x7f])
         );
+    }
+
+    #[test]
+    fn modified_cursor_keys_encode_xterm_modifier_param() {
+        let cases: [(KeyCode, KeyModifiers, &[u8]); 7] = [
+            (KeyCode::Left, KeyModifiers::NONE, b"\x1b[D"),
+            (KeyCode::Left, KeyModifiers::CONTROL, b"\x1b[1;5D"),
+            (KeyCode::Right, KeyModifiers::CONTROL, b"\x1b[1;5C"),
+            (KeyCode::Right, KeyModifiers::ALT, b"\x1b[1;3C"),
+            (KeyCode::Up, KeyModifiers::SHIFT, b"\x1b[1;2A"),
+            (KeyCode::Delete, KeyModifiers::NONE, b"\x1b[3~"),
+            (KeyCode::Delete, KeyModifiers::CONTROL, b"\x1b[3;5~"),
+        ];
+        for (code, mods, want) in cases {
+            assert_eq!(
+                super::encode_key_to_bytes(KeyEvent::new(code, mods)),
+                Some(want.to_vec()),
+                "{code:?} + {mods:?}"
+            );
+        }
     }
 
     fn autofocus_key(code: KeyCode) -> KeyEvent {
