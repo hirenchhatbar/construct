@@ -27226,6 +27226,7 @@ mod tests {
     #[tokio::test]
     async fn fleet_tally_hover_names_the_bucket_it_sits_on() {
         let (mut app, _dir, server) = empty_app().await;
+        app.list_panel_w = TALLY_LIST_W;
         let mut working = summary_with_kind(construct_protocol::SessionKind::User);
         working.id = "run".into();
         working.state = construct_protocol::SessionState::Running;
@@ -27312,6 +27313,7 @@ mod tests {
     #[tokio::test]
     async fn unfocused_tally_dims_but_keeps_its_bucket_hue() {
         let (mut app, _dir, server) = empty_app().await;
+        app.list_panel_w = TALLY_LIST_W;
         let mut flagged = summary_with_kind(construct_protocol::SessionKind::User);
         flagged.id = "ask".into();
         flagged.state = construct_protocol::SessionState::AwaitingInput;
@@ -27373,6 +27375,7 @@ mod tests {
         extra: usize,
     ) -> (App, tempfile::TempDir, tokio::task::JoinHandle<()>) {
         let (mut app, dir, server) = empty_app().await;
+        app.list_panel_w = TALLY_LIST_W;
         let mut working = summary_with_kind(construct_protocol::SessionKind::User);
         working.id = "run".into();
         working.state = construct_protocol::SessionState::Running;
@@ -27402,6 +27405,7 @@ mod tests {
     #[tokio::test]
     async fn fleet_panel_rows_wear_the_state_that_flagged_them() {
         let (mut app, _dir, server) = empty_app().await;
+        app.list_panel_w = TALLY_LIST_W;
         let mut waiting = summary_with_kind(construct_protocol::SessionKind::User);
         waiting.id = "ask".into();
         waiting.title = Some("waiting on a reply".into());
@@ -27542,6 +27546,7 @@ mod tests {
     #[tokio::test]
     async fn fleet_panel_keeps_a_blank_margin_inside_its_border() {
         let (mut app, _dir, server) = empty_app().await;
+        app.list_panel_w = TALLY_LIST_W;
         let mut waiting = summary_with_kind(construct_protocol::SessionKind::User);
         waiting.id = "ask".into();
         waiting.title = Some("waiting on a reply".into());
@@ -27614,6 +27619,10 @@ mod tests {
             .await;
         }
     }
+
+    /// The jump-key hint outranks the tallies on the default-width pane
+    /// (spec 0220), so tally tests widen the list until both fit.
+    const TALLY_LIST_W: u16 = 60;
 
     fn tally_hit(app: &App, kind: crate::ui::FleetTally) -> FleetTallyHit {
         app.layout
@@ -27839,6 +27848,7 @@ mod tests {
     #[tokio::test]
     async fn fleet_tally_excludes_sessions_the_list_never_renders() {
         let (mut app, _dir, server) = empty_app().await;
+        app.list_panel_w = TALLY_LIST_W;
         let mut visible = summary_with_kind(construct_protocol::SessionKind::User);
         visible.id = "run".into();
         visible.state = construct_protocol::SessionState::Running;
