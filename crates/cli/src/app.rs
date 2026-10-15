@@ -2420,6 +2420,10 @@ pub struct App {
     /// (`PlaybookPopup::pinned_clip`); a double-click navigates to the full
     /// session view, same as every click did before pinning existed.
     pub last_playbook_clip_click: Option<(String, Instant)>,
+    /// `(col, row, click_instant, count)` of the last plain click on a text
+    /// surface, so a double-click selects a word and a triple-click a row
+    /// (crossterm reports no click count of its own).
+    pub last_text_click: Option<(u16, u16, Instant, u8)>,
     /// ID of the daemon-owned minibuffer session, if one is present
     /// in the sessions list. The minibuffer runs as a smith
     /// interactive (PTY) session; the TUI renders its PTY in the
@@ -5960,6 +5964,7 @@ async fn run_with_socket_initial_selection(
         saw_mouse_motion: false,
         mouse_capture_enabled: true,
         last_playbook_clip_click: None,
+        last_text_click: None,
         minibuffer_id: initial_orch_id,
         terminal_focused: true,
         list_panel_w: persisted.list_panel_w.unwrap_or(LIST_PANEL_W_DEFAULT),
@@ -12534,6 +12539,19 @@ impl App {
                         col: ev.column,
                         row: ev.row,
                     };
+                    if !sel.dragged {
+                        let clicks = self.register_text_click(ev.column, ev.row);
+                        let in_list = self.layout.list_area.is_some_and(|l| {
+                            l.contains(ratatui::layout::Position::new(ev.column, ev.row))
+                        });
+                        if clicks > 1 && !in_list {
+                            if let Some(expanded) =
+                                multi_click_selection(&self.frame_text, &sel, clicks)
+                            {
+                                sel = expanded;
+                            }
+                        }
+                    }
                     if sel.dragged {
                         let text = self.selected_frame_text(&sel);
                         // A drag across blank cells selects nothing. Copying
@@ -12572,6 +12590,25 @@ impl App {
 
     fn selected_frame_range(&self, sel: &TextSelection) -> Option<TextSelectionRange> {
         frame_selection_range(sel)
+    }
+
+    /// Count consecutive clicks on the same cell within the double-click
+    /// interval: 1, 2, 3, then back to 1 so a fourth click starts over.
+    fn register_text_click(&mut self, col: u16, row: u16) -> u8 {
+        let now = Instant::now();
+        let count = match self.last_text_click {
+            Some((c, r, at, n))
+                if c == col
+                    && r == row
+                    && now.saturating_duration_since(at)
+                        < Duration::from_millis(PLAYBOOK_CLIP_DOUBLE_CLICK_MS) =>
+            {
+                n % 3 + 1
+            }
+            _ => 1,
+        };
+        self.last_text_click = Some((col, row, now, count));
+        count
     }
 
     async fn handle_left_click(&mut self, col: u16, row: u16) {
@@ -14346,7 +14383,13 @@ impl App {
                 self.publish_playbook_mutation(before).await;
             }
             SavePlaybook => {
-                self.save_playbook_popup().await;
+                // No Playbook open: the chord belongs to the harness (e.g.
+                // Claude Code), so forward `C-x C-s` instead of swallowing it.
+                if self.playbook_popup.is_none() && self.is_pty_captured() {
+                    self.queue_selected_pty_input(vec![0x18, 0x13]);
+                } else {
+                    self.save_playbook_popup().await;
+                }
             }
             RunPlaybook => {
                 // Keyboard equivalent of the title-bar ▶ button and the
@@ -16618,6 +16661,52 @@ fn frame_selection_range(sel: &TextSelection) -> Option<TextSelectionRange> {
     })
 }
 
+/// The selection a multi-click makes: a double-click covers the
+/// whitespace-delimited word under the click, a triple-click the whole row,
+/// both clipped to the surface the click landed on. `None` for a
+/// double-click on blank space, so it stays an ordinary click.
+fn multi_click_selection(
+    frame_text: &[String],
+    sel: &TextSelection,
+    clicks: u8,
+) -> Option<TextSelection> {
+    let at = sel.anchor;
+    let line: Vec<char> = frame_text.get(at.row as usize)?.chars().collect();
+    let left = sel.bounds.map_or(0, |b| b.left());
+    let right = sel.bounds.map_or(line.len().saturating_sub(1) as u16, |b| {
+        b.right().saturating_sub(1)
+    });
+    let (start, end) = if clicks >= 3 {
+        (left, right)
+    } else {
+        let blank = |col: u16| line.get(col as usize).is_none_or(|ch| ch.is_whitespace());
+        if blank(at.col) {
+            return None;
+        }
+        let mut start = at.col;
+        while start > left && !blank(start - 1) {
+            start -= 1;
+        }
+        let mut end = at.col;
+        while end < right && !blank(end + 1) {
+            end += 1;
+        }
+        (start, end)
+    };
+    Some(TextSelection {
+        anchor: ScreenPoint {
+            col: start,
+            row: at.row,
+        },
+        head: ScreenPoint {
+            col: end,
+            row: at.row,
+        },
+        dragged: true,
+        bounds: sel.bounds,
+    })
+}
+
 /// The text a drag selected, read out of the rendered frame snapshot.
 ///
 /// Returns empty when the drag covered only blank cells — a real outcome, not
@@ -18467,6 +18556,7 @@ mod tests {
             saw_mouse_motion: false,
             mouse_capture_enabled: true,
             last_playbook_clip_click: None,
+            last_text_click: None,
             minibuffer_id: None,
             terminal_focused: true,
             list_panel_w: LIST_PANEL_W_DEFAULT,
@@ -44195,6 +44285,25 @@ mod tests {
         );
     }
 
+    /// `C-x C-s` with no Playbook open forwards the whole chord to the
+    /// captured PTY so harnesses that bind it (Claude Code) receive it.
+    #[tokio::test]
+    async fn ctrl_x_ctrl_s_without_playbook_forwards_to_focused_pty() {
+        let (mut app, _dir, _srv) = captured_app().await;
+        assert!(app.playbook_popup.is_none(), "precondition: no Playbook");
+        let (tx, mut rx) = mpsc::unbounded_channel::<PtyInputJob>();
+        app.pty_input_tx = tx;
+
+        app.on_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL))
+            .await;
+        app.on_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL))
+            .await;
+
+        let job = rx.try_recv().expect("C-x C-s must reach the PTY");
+        assert_eq!(job.bytes, vec![0x18, 0x13]);
+        assert!(app.chord_state.is_empty());
+    }
+
     /// `C-x C-x` in a captured PTY is the escape hatch: the first C-x opens
     /// the chord prefix, the second C-x cancels it *and* forwards a literal
     /// C-x byte (0x18) to the focused session — so harnesses that bind C-x
@@ -51666,6 +51775,31 @@ mod tests {
                 modifiers: KeyModifiers::empty(),
             }),
             "an unmodified press still belongs to the child"
+        );
+    }
+
+    /// Double-click selects the whitespace-delimited word under the cursor,
+    /// triple-click the whole row, both clipped to the surface's bounds; a
+    /// double-click on blank space selects nothing.
+    #[test]
+    fn multi_click_selects_word_then_row() {
+        let frame = vec![format!("|{:<38}|", " run cargo-build --all  now")];
+        let bounds = Some(Rect::new(1, 0, 38, 1));
+        let click = |col| TextSelection {
+            anchor: ScreenPoint { col, row: 0 },
+            head: ScreenPoint { col, row: 0 },
+            dragged: false,
+            bounds,
+        };
+
+        let word = multi_click_selection(&frame, &click(9), 2).expect("word");
+        assert_eq!(frame_selection_text(&frame, &word), "cargo-build");
+        assert!(multi_click_selection(&frame, &click(1), 2).is_none());
+
+        let row = multi_click_selection(&frame, &click(9), 3).expect("row");
+        assert_eq!(
+            frame_selection_text(&frame, &row),
+            " run cargo-build --all  now"
         );
     }
 
