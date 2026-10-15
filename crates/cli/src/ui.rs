@@ -1161,10 +1161,20 @@ fn render_tooltip_at(
         width: w,
         height: h,
     };
-    render_tooltip_rect(f, theme, label, rect);
+    // Every caller here passes chrome text, so bracketed keys are hints.
+    render_tooltip_line(
+        f,
+        theme,
+        Line::from(key_hint_spans(theme, label, theme.text_style())),
+        rect,
+    );
 }
 
 fn render_tooltip_rect(f: &mut Frame, theme: &Theme, label: &str, rect: Rect) {
+    render_tooltip_line(f, theme, Line::from(label.to_string()), rect);
+}
+
+fn render_tooltip_line(f: &mut Frame, theme: &Theme, label: Line<'static>, rect: Rect) {
     let block = theme.themed_block("");
     let p = Paragraph::new(label).block(block).style(theme.text_style());
     f.render_widget(Clear, rect);
@@ -1974,7 +1984,11 @@ fn render_turn_picker(f: &mut Frame, area: Rect, app: &mut App) {
             "Fork: pick the turn to retry — or now ([Enter] picks, [Esc] cancels)"
         };
         f.render_widget(
-            Paragraph::new(hint).style(Style::default().fg(app.theme.dim)),
+            Paragraph::new(Line::from(key_hint_spans(
+                &app.theme,
+                hint,
+                Style::default().fg(app.theme.dim),
+            ))),
             Rect::new(area.x, y, area.width, 1),
         );
     }
@@ -2058,13 +2072,19 @@ fn render_harness_picker(f: &mut Frame, area: Rect, app: &mut App, mb: &Prompt) 
             + UnicodeWidthStr::width(description.as_str())
             + UnicodeWidthStr::width(status);
         let gap = (area.width as usize).saturating_sub(used);
-        let line = format!(
-            "{marker}{name:<name_width$}  {description}{gap}{status}",
-            name = entry.label(),
-            gap = " ".repeat(gap),
-        );
+        let name = format!("{:<name_width$}", entry.label());
+        let mut line = vec![Span::styled(marker, row_style)];
+        if highlighted || !entry.available {
+            line.push(Span::styled(name, row_style));
+        } else {
+            line.extend(key_hint_spans(&app.theme, &name, row_style));
+        }
+        line.push(Span::styled(
+            format!("  {description}{gap}{status}", gap = " ".repeat(gap)),
+            row_style,
+        ));
         f.render_widget(
-            Paragraph::new(line).style(row_style),
+            Paragraph::new(Line::from(line)).style(row_style),
             Rect::new(area.x, y, area.width, 1),
         );
         app.layout.prompt_harness_hits.push(HarnessHit {
@@ -2102,17 +2122,21 @@ fn render_harness_picker(f: &mut Frame, area: Rect, app: &mut App, mb: &Prompt) 
             };
             format!("  {position}  [x] launch  [↑]/[↓] [C-p]/[C-n] select  [Enter] choose  [Tab] complete  [Esc] cancel")
         });
-    let suffix_style = if mb.error.is_some() {
-        Style::default().fg(app.theme.danger)
+    let mut line = vec![
+        Span::styled(prefix, Style::default().fg(app.theme.info)),
+        Span::raw(mb.input.clone()),
+    ];
+    if mb.error.is_some() {
+        line.push(Span::styled(suffix, Style::default().fg(app.theme.danger)));
     } else {
-        Style::default().fg(app.theme.dim)
-    };
+        line.extend(key_hint_spans(
+            &app.theme,
+            &suffix,
+            Style::default().fg(app.theme.dim),
+        ));
+    }
     f.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(prefix, Style::default().fg(app.theme.info)),
-            Span::raw(mb.input.clone()),
-            Span::styled(suffix, suffix_style),
-        ])),
+        Paragraph::new(Line::from(line)),
         Rect::new(area.x, input_y, area.width, 1),
     );
     let cursor_x = area.x + UnicodeWidthStr::width(prefix) as u16 + mb.cursor as u16;
@@ -2302,7 +2326,22 @@ fn render_minibuffer_choices(
         match part {
             PromptPart::Text(s) => {
                 col += UnicodeWidthStr::width(s) as u16;
-                spans.push(Span::raw(s.to_string()));
+                // The `[`/`]` around a bare-letter choice belong to its key.
+                for piece in s.split_inclusive(['[', ']']) {
+                    let (body, bracket) = match piece.char_indices().last() {
+                        Some((i, c @ ('[' | ']'))) => (&piece[..i], &piece[i..i + c.len_utf8()]),
+                        _ => (piece, ""),
+                    };
+                    if !body.is_empty() {
+                        spans.push(Span::raw(body.to_string()));
+                    }
+                    if !bracket.is_empty() {
+                        spans.push(Span::styled(
+                            bracket.to_string(),
+                            key_hint_style(&app.theme, Style::default()),
+                        ));
+                    }
+                }
             }
             PromptPart::Choice { label, action } => {
                 let w = UnicodeWidthStr::width(label) as u16;
@@ -2312,10 +2351,16 @@ fn render_minibuffer_choices(
                     mouse,
                     Some((mx, my)) if my == area.y && mx >= x_start && mx < x_end
                 );
-                spans.push(Span::styled(
-                    label.to_string(),
-                    if hovered { hover_style } else { base_style },
-                ));
+                if hovered {
+                    spans.push(Span::styled(label.to_string(), hover_style));
+                } else if label.contains('[') {
+                    spans.extend(key_hint_spans(&app.theme, label, base_style));
+                } else {
+                    spans.push(Span::styled(
+                        label.to_string(),
+                        key_hint_style(&app.theme, base_style),
+                    ));
+                }
                 app.layout.prompt_choice_hits.push(PromptChoiceHit {
                     x_start,
                     x_end,
@@ -6612,7 +6657,10 @@ fn render_suggest_affordances(f: &mut Frame, app: &mut App) {
             .fg(app.theme.accent)
             .bg(bg)
             .add_modifier(Modifier::DIM);
-        f.render_widget(Paragraph::new(Line::styled(text, style)), label_area);
+        f.render_widget(
+            Paragraph::new(Line::from(key_hint_spans(&app.theme, &text, style))),
+            label_area,
+        );
         hits.push(SuggestAffordanceHit { session_id, area });
     }
     app.layout.suggest_affordance_hits = hits;
@@ -7144,11 +7192,12 @@ fn render_suggest_deck(f: &mut Frame, app: &mut App) {
         "[g]/[r] generate · [←]/[→] columns · [↑]/[↓] move · [Enter] stage · [Esc]/[C-g] close"
     };
     f.render_widget(
-        Paragraph::new(Line::styled(
-            truncate_to_width(hint, inner_w as usize),
+        Paragraph::new(Line::from(key_hint_spans(
+            &app.theme,
+            &truncate_to_width(hint, inner_w as usize),
             // Footer hints: lineage-style secondary text (theme.dim).
             Style::default().fg(app.theme.dim),
-        )),
+        ))),
         Rect {
             x: inner_x,
             y: footer_y,
@@ -7867,6 +7916,7 @@ fn render_fleet_tally_panel(f: &mut Frame, app: &App) {
             &format!("{:width$}{}", "", entry.label, width = FLEET_PANEL_GLYPH_W),
             None,
             style,
+            style,
         );
         f.buffer_mut().set_string(
             text_area.x.saturating_add(1),
@@ -7898,6 +7948,7 @@ fn render_fleet_tally_panel(f: &mut Frame, app: &App) {
                 Style::default()
                     .fg(app.theme.muted)
                     .add_modifier(Modifier::ITALIC),
+                Style::default(),
             );
         }
     }
@@ -7962,7 +8013,12 @@ fn render_session_title_menu(f: &mut Frame, app: &App) {
             playbook_open,
             terminal_focus,
         );
-        render_session_title_menu_row(f, area, row, &label_text, binding, style);
+        let key_style = if enabled && !hovered {
+            key_hint_style(&app.theme, style)
+        } else {
+            style
+        };
+        render_session_title_menu_row(f, area, row, &label_text, binding, style, key_style);
     }
 }
 
@@ -8015,6 +8071,11 @@ fn render_operator_title_menu(f: &mut Frame, app: &App) {
             &label,
             operator_title_menu_action_binding(app, action),
             style,
+            if hovered {
+                style
+            } else {
+                key_hint_style(&app.theme, style)
+            },
         );
     }
 }
@@ -8050,6 +8111,36 @@ fn mnemonic_hint(key: &str, label: &str) -> Option<String> {
     Some(format!("[{first}]{}", &label[first.len_utf8()..]))
 }
 
+/// Splits chrome text into spans, painting every bracketed key hint
+/// (`[C-x z]`, the `[r]` of `[r]ename`) brackets included in the theme's
+/// `key_hint`; the rest keeps `base`. Highlighted rows skip this so the key
+/// follows the row's highlight colors. Chrome only: transcript text may
+/// carry brackets that aren't keys.
+pub(crate) fn key_hint_spans(theme: &Theme, text: &str, base: Style) -> Vec<Span<'static>> {
+    let key_hint = key_hint_style(theme, base);
+    let mut spans = Vec::new();
+    let mut rest = text;
+    while let Some(open) = rest.find('[') {
+        let Some(close) = rest[open..].find(']').map(|i| open + i) else {
+            break;
+        };
+        if open > 0 {
+            spans.push(Span::styled(rest[..open].to_string(), base));
+        }
+        spans.push(Span::styled(rest[open..=close].to_string(), key_hint));
+        rest = &rest[close + 1..];
+    }
+    if !rest.is_empty() {
+        spans.push(Span::styled(rest.to_string(), base));
+    }
+    spans
+}
+
+/// `base` recolored with the theme's key-hint foreground.
+pub(crate) fn key_hint_style(theme: &Theme, base: Style) -> Style {
+    base.fg(theme.key_hint)
+}
+
 fn render_session_title_menu_row(
     f: &mut Frame,
     area: Rect,
@@ -8057,6 +8148,7 @@ fn render_session_title_menu_row(
     label_text: &str,
     binding: Option<&str>,
     style: Style,
+    key_style: Style,
 ) {
     let content_x = area.x.saturating_add(1);
     let content_w = area.width.saturating_sub(2) as usize;
@@ -8068,12 +8160,12 @@ fn render_session_title_menu_row(
 
     // Key hints are bracketed: a single-letter key that starts the label
     // marks it in place (`[r]ename`), anything else sits right as `[C-x r]`.
-    let (label_text, binding) = match binding {
+    let (label_text, binding, marked) = match binding {
         Some(key) => match mnemonic_hint(key, label_text) {
-            Some(marked) => (marked, None),
-            None => (label_text.to_string(), Some(format!("[{key}]"))),
+            Some(marked) => (marked, None, true),
+            None => (label_text.to_string(), Some(format!("[{key}]")), false),
         },
-        None => (label_text.to_string(), None),
+        None => (label_text.to_string(), None, false),
     };
     let binding = binding.as_deref();
     let label_text = label_text.as_str();
@@ -8082,7 +8174,13 @@ fn render_session_title_menu_row(
         content_w.saturating_sub(binding_w.saturating_add(1))
     });
     let label = truncate_to_width(label_text, label_budget);
-    f.buffer_mut().set_string(content_x, row, label, style);
+    f.buffer_mut().set_string(content_x, row, &label, style);
+    // Only the hint this row was handed is a key; the label itself may be a
+    // session title with brackets of its own.
+    if let Some(end) = label.find(']').filter(|_| marked) {
+        f.buffer_mut()
+            .set_string(content_x, row, &label[..=end], key_style);
+    }
 
     if let Some(binding) = binding {
         let binding_w = UnicodeWidthStr::width(binding) as u16;
@@ -8092,7 +8190,7 @@ fn render_session_title_menu_row(
                 .saturating_add(area.width)
                 .saturating_sub(1)
                 .saturating_sub(binding_w);
-            f.buffer_mut().set_string(binding_x, row, binding, style);
+            f.buffer_mut().set_string(binding_x, row, binding, key_style);
         }
     }
 }
@@ -8359,7 +8457,8 @@ fn operator_picker_lines(
         }
     }
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
+    lines.push(Line::from(key_hint_spans(
+        &app.theme,
         "[↑]/[↓] [C-p]/[C-n] move · [Enter] choose · [Esc] cancel",
         Style::default().fg(app.theme.dim),
     )));
@@ -8733,7 +8832,11 @@ fn render_operator_view(f: &mut Frame, area: Rect, app: &mut App, name: &str, fo
             Line::from(""),
             Line::from(Span::styled(help_body, Style::default().fg(app.theme.text))),
             Line::from(""),
-            Line::from(Span::styled(help_hint, Style::default().fg(app.theme.dim))),
+            Line::from(key_hint_spans(
+            &app.theme,
+            help_hint,
+            Style::default().fg(app.theme.dim),
+        )),
         ]
     };
     app.layout.operator_field_hits.extend(
@@ -9010,21 +9113,23 @@ fn render_operator_view(f: &mut Frame, area: Rect, app: &mut App, name: &str, fo
     // out of unsaved edits, and once there's nothing to back out of it hands
     // keyboard focus to the session list (spec 0175).
     let footer = if !editing {
-        "Enter/e edit · C-x keeps global commands"
+        "[Enter]/[e] edit · [C-x] keeps global commands"
     } else if dialog.mode == crate::app::OperatorDialogMode::Create {
-        "Enter/C-s save · Space attach · a create channel · Esc discards this draft"
+        "[Enter]/[C-s] save · [Space] attach · [a] create channel · [Esc] discards this draft"
     } else if unsaved.is_empty() {
         "[Enter]/[C-s] save · [Space] attach · [d]elete channel · [p]ublish/withdraw · [o]pen · [y] copy · [Esc] to session list"
     } else {
         "[Enter]/[C-s] save · [Space] attach · [d]elete channel · [p]ublish/withdraw · [o]pen · [y] copy · [Esc] reverts edits"
     };
     activity.push(Line::from(""));
-    push_wrapped_operator_line(
-        &mut activity,
-        footer,
-        section.width,
-        Style::default().fg(app.theme.dim),
-    );
+    // shortcut: a key like `[C-x C-f]` wrapped across lines loses its color; fine while footers wrap only on very narrow panes.
+    for piece in wrap_plain(footer, section.width.max(1) as usize) {
+        activity.push(Line::from(key_hint_spans(
+            &app.theme,
+            &piece,
+            Style::default().fg(app.theme.dim),
+        )));
+    }
 
     let viewport_h = section.height as usize;
     // Every line was built to fit the width, so rows and lines are the same
@@ -9366,7 +9471,11 @@ pub(crate) fn render_operator_channel_editor(
         Line::from(""),
         Line::from(Span::styled(body, Style::default().fg(app.theme.text))),
         Line::from(""),
-        Line::from(Span::styled(hint, Style::default().fg(app.theme.dim))),
+        Line::from(key_hint_spans(
+            &app.theme,
+            hint,
+            Style::default().fg(app.theme.dim),
+        )),
     ];
     if let Some(secret) = &editor.new_secret {
         help.push(Line::from(""));
@@ -9377,14 +9486,13 @@ pub(crate) fn render_operator_channel_editor(
     }
     if let Some(note) = &editor.note {
         help.push(Line::from(""));
-        help.push(Line::from(Span::styled(
-            note,
-            Style::default().fg(if editor.confirm_delete {
-                app.theme.danger
-            } else {
-                app.theme.dim
-            }),
-        )));
+        // Only the delete confirmation is our own text; other notes can
+        // carry daemon errors whose brackets aren't keys.
+        help.push(Line::from(if editor.confirm_delete {
+            key_hint_spans(&app.theme, note, Style::default().fg(app.theme.danger))
+        } else {
+            vec![Span::styled(note.clone(), Style::default().fg(app.theme.dim))]
+        }));
     }
     f.render_widget(Paragraph::new(help).wrap(Wrap { trim: false }), columns[2]);
     let footer = if editor.mode == crate::app::OperatorChannelDialogMode::Create {
@@ -9396,7 +9504,8 @@ pub(crate) fn render_operator_channel_editor(
     };
     let footer_y = area.bottom().saturating_sub(1);
     f.render_widget(
-        Paragraph::new(Line::from(Span::styled(
+        Paragraph::new(Line::from(key_hint_spans(
+            &app.theme,
             footer,
             Style::default().fg(app.theme.dim),
         ))),
@@ -9431,7 +9540,8 @@ fn render_empty_session_state(f: &mut Frame, area: Rect, app: &mut App) {
     };
     let card = centered_rect(area, 72, (base_rows + harness_rows).max(11));
     let label_style = Style::default().fg(app.theme.accent);
-    let hover_style = label_style.add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
+    let key_style = Style::default().fg(app.theme.key_hint);
+    let hover_style = key_style.add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
     // The tour CTA row always renders; only its EMPHASIS (accent + bold, an
     // invitation — not an auto-start) is gated: once the configure dialog
     // has been dismissed at least once AND the tour hasn't been completed
@@ -9532,32 +9642,38 @@ fn render_empty_session_state(f: &mut Frame, area: Rect, app: &mut App) {
                     })
                 },
             ),
-            Span::styled("  — or press [t]", Style::default().fg(app.theme.dim)),
-        ]),
+        ]
+        .into_iter()
+        .chain(key_hint_spans(
+            &app.theme,
+            "  — or press [t]",
+            Style::default().fg(app.theme.dim),
+        ))
+        .collect::<Vec<_>>()),
         Line::raw(""),
         Line::from(vec![
             Span::raw("  "),
             Span::styled(
                 "[C-x C-f]",
-                if hovered[0] { hover_style } else { label_style },
+                if hovered[0] { hover_style } else { key_style },
             ),
             Span::raw("  create a session"),
         ]),
         Line::from(vec![
             Span::raw("  "),
-            Span::styled("[C-x x]", if hovered[1] { hover_style } else { label_style }),
+            Span::styled("[C-x x]", if hovered[1] { hover_style } else { key_style }),
             Span::raw("    open the Minibuffer"),
         ]),
         Line::from(vec![
             Span::raw("  "),
-            Span::styled("[?]", if hovered[2] { hover_style } else { label_style }),
+            Span::styled("[?]", if hovered[2] { hover_style } else { key_style }),
             Span::raw("        show shortcuts and concepts"),
         ]),
         Line::from(vec![
             Span::raw("  "),
             Span::styled(
                 "[C-x C-c]",
-                if hovered[3] { hover_style } else { label_style },
+                if hovered[3] { hover_style } else { key_style },
             ),
             Span::raw("  exit TUI"),
         ]),
@@ -9693,7 +9809,19 @@ fn render_tutorial_card(f: &mut Frame, app: &mut App) {
                         if hovered {
                             style = style.add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
                         }
-                        spans.push(Span::styled(text.clone(), style));
+                        // Tour navigation (`[next step]`, `[got it]`, …) are
+                        // buttons, not keys.
+                        let button = matches!(
+                            action,
+                            KeyAction::TutorialNextStep
+                                | KeyAction::TutorialPrevStep
+                                | KeyAction::TutorialEndTour
+                        );
+                        if button {
+                            spans.push(Span::styled(text.clone(), style));
+                        } else {
+                            spans.extend(key_hint_spans(&app.theme, text, style));
+                        }
                         app.layout.shortcut_hints.push(HintZone {
                             x_start: col,
                             x_end: col + w,
@@ -9702,8 +9830,9 @@ fn render_tutorial_card(f: &mut Frame, app: &mut App) {
                         });
                     }
                     None => {
-                        spans.push(Span::styled(
-                            text.clone(),
+                        spans.extend(key_hint_spans(
+                            &app.theme,
+                            text,
                             Style::default().fg(app.theme.text),
                         ));
                     }
@@ -9734,7 +9863,7 @@ fn render_tutorial_card(f: &mut Frame, app: &mut App) {
         if row < bottom {
             let style = Style::default().fg(app.theme.warning);
             f.render_widget(
-                Paragraph::new(feedback.clone())
+                Paragraph::new(Line::from(key_hint_spans(&app.theme, feedback, style)))
                     .style(style)
                     .wrap(Wrap { trim: false }),
                 Rect {
@@ -10238,8 +10367,16 @@ fn render_inline_widget_header_affordances(
         .saturating_add(area.width.saturating_sub(close_w + 1));
     let hint_x = close_x.saturating_sub(hint_w);
     let y = area.y;
-    f.buffer_mut()
-        .set_string(hint_x, y, hint, Style::default().fg(app.theme.dim));
+    f.buffer_mut().set_line(
+        hint_x,
+        y,
+        &Line::from(key_hint_spans(
+            &app.theme,
+            hint,
+            Style::default().fg(app.theme.dim),
+        )),
+        hint_w,
+    );
     f.buffer_mut().set_string(
         close_x,
         y,
@@ -14108,8 +14245,11 @@ fn render_prompt(f: &mut Frame, area: Rect, app: &mut App) {
             Some((mx, my)) => my == area.y && mx >= x_start && mx < x_end,
             None => false,
         };
-        let style = if hovered { hover_style } else { base_style };
-        spans.push(Span::styled(label.to_string(), style));
+        if hovered {
+            spans.push(Span::styled(label.to_string(), hover_style));
+        } else {
+            spans.extend(key_hint_spans(&app.theme, label, base_style));
+        }
         app.layout.shortcut_hints.push(HintZone {
             x_start,
             x_end,
@@ -14181,9 +14321,14 @@ fn render_help(f: &mut Frame, area: Rect, app: &mut App) -> Rect {
         .borders(Borders::ALL)
         .border_style(Style::default().fg(app.theme.border_focused))
         .padding(ratatui::widgets::Padding::new(2, 2, 1, 1))
-        .title(title);
+        .title(Line::from(key_hint_spans(&app.theme, title, Style::default())));
     let inner = block.inner(popup);
-    let para = Paragraph::new(help_text)
+    let text_style = Style::default().fg(app.theme.text);
+    let help_lines: Vec<Line> = help_text
+        .lines()
+        .map(|line| Line::from(key_hint_spans(&app.theme, line, text_style)))
+        .collect();
+    let para = Paragraph::new(help_lines)
         .block(block)
         .style(Style::default().fg(app.theme.text))
         .wrap(Wrap { trim: false })
@@ -14483,7 +14628,8 @@ fn render_configure_footer(f: &mut Frame, area: Rect, app: &App, tab: ConfigureT
         ConfigureTab::Features => "[↑]/[↓] select   [←]/[→] switch tab   [Esc] close",
     };
     f.render_widget(
-        Paragraph::new(Line::from(Span::styled(
+        Paragraph::new(Line::from(key_hint_spans(
+            &app.theme,
             hint,
             Style::default().fg(app.theme.dim),
         ))),
@@ -23121,7 +23267,7 @@ fn remote_hint_line<'a>(
         } else {
             Style::default().fg(app.theme.dim)
         };
-        spans.push(Span::styled(seg.text.to_string(), style));
+        spans.extend(key_hint_spans(&app.theme, seg.text, style));
         col += w;
     }
     (Line::from(spans), zones)
@@ -24131,6 +24277,24 @@ mod remote_popup_tests {
 mod tests {
     use super::*;
     use construct_protocol::MessageRole;
+
+    #[test]
+    fn key_hint_spans_color_only_bracketed_keys() {
+        let theme = Theme::default();
+        let base = Style::default().fg(theme.dim);
+        let spans = key_hint_spans(&theme, "[r]ename · [C-x z] zoom [open", base);
+        let parts: Vec<(&str, Style)> = spans.iter().map(|s| (s.content.as_ref(), s.style)).collect();
+        let key = base.fg(theme.key_hint);
+        assert_eq!(
+            parts,
+            vec![
+                ("[r]", key),
+                ("ename · ", base),
+                ("[C-x z]", key),
+                (" zoom [open", base),
+            ]
+        );
+    }
 
     #[test]
     fn short_event_label_truncates_long_messages() {

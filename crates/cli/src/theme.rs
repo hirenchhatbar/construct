@@ -41,6 +41,9 @@ pub struct Theme {
     /// frame reads as the same distinct accent no matter which theme is
     /// active — unlike `accent_alt`, which follows the active theme.
     pub playbook_border: Color,
+    /// Bracketed key hints in TUI chrome (`[C-x z]`, `[r]ename`). A hue apart
+    /// from `text`/`dim` so keys stand out from the prose around them.
+    pub key_hint: Color,
     pub highlight_fg: Color,
     pub highlight_bg: Color,
     pub inactive_highlight_bg: Color,
@@ -78,6 +81,7 @@ impl Default for Theme {
             accent: Color::Rgb(57, 255, 136),
             accent_alt: Color::Rgb(92, 225, 255),
             playbook_border: Color::Rgb(92, 225, 255),
+            key_hint: Color::Rgb(120, 210, 255),
             highlight_fg: Color::Rgb(6, 22, 12),
             highlight_bg: Color::Rgb(78, 255, 130),
             inactive_highlight_bg: Color::Rgb(28, 78, 42),
@@ -326,6 +330,7 @@ impl Theme {
             accent: Color::Rgb(16, 138, 74),
             accent_alt: Color::Rgb(22, 110, 150),
             playbook_border: Color::Rgb(22, 110, 150),
+            key_hint: Color::Rgb(20, 100, 170),
             highlight_fg: Color::Rgb(248, 255, 250),
             highlight_bg: Color::Rgb(32, 158, 92),
             inactive_highlight_bg: Color::Rgb(206, 232, 214),
@@ -365,6 +370,7 @@ impl Theme {
             accent: Color::Rgb(96, 165, 250),
             accent_alt: Color::Rgb(192, 132, 252),
             playbook_border: Color::Rgb(92, 225, 255),
+            key_hint: Color::Rgb(251, 146, 60),
             highlight_fg: Color::Rgb(17, 24, 39),
             highlight_bg: Color::Rgb(147, 197, 253),
             inactive_highlight_bg: Color::Rgb(55, 65, 81),
@@ -403,6 +409,7 @@ impl Theme {
             accent: Color::Rgb(37, 99, 235),
             accent_alt: Color::Rgb(124, 58, 237),
             playbook_border: Color::Rgb(22, 110, 150),
+            key_hint: Color::Rgb(194, 65, 12),
             highlight_fg: Color::Rgb(255, 255, 255),
             highlight_bg: Color::Rgb(37, 99, 235),
             inactive_highlight_bg: Color::Rgb(229, 231, 235),
@@ -441,6 +448,7 @@ impl Theme {
             accent: Color::Rgb(121, 184, 255),
             accent_alt: Color::Rgb(255, 176, 84),
             playbook_border: Color::Rgb(92, 225, 255),
+            key_hint: Color::Rgb(94, 214, 196),
             highlight_fg: Color::Rgb(12, 18, 28),
             highlight_bg: Color::Rgb(121, 184, 255),
             inactive_highlight_bg: Color::Rgb(43, 52, 66),
@@ -479,6 +487,7 @@ impl Theme {
             accent: Color::Rgb(34, 115, 195),
             accent_alt: Color::Rgb(174, 96, 28),
             playbook_border: Color::Rgb(22, 110, 150),
+            key_hint: Color::Rgb(130, 70, 200),
             highlight_fg: Color::Rgb(255, 255, 255),
             highlight_bg: Color::Rgb(34, 115, 195),
             inactive_highlight_bg: Color::Rgb(226, 232, 240),
@@ -788,6 +797,7 @@ fn parse_theme_onto(base: Theme, text: &str) -> Result<Theme, String> {
         colors.playbook_border,
         "playbook_border",
     )?;
+    apply(&mut theme.key_hint, colors.key_hint, "key_hint")?;
     apply(&mut theme.highlight_fg, colors.highlight_fg, "highlight_fg")?;
     apply(&mut theme.highlight_bg, colors.highlight_bg, "highlight_bg")?;
     apply(
@@ -918,6 +928,7 @@ struct RawColors {
     accent: Option<String>,
     accent_alt: Option<String>,
     playbook_border: Option<String>,
+    key_hint: Option<String>,
     highlight_fg: Option<String>,
     highlight_bg: Option<String>,
     inactive_highlight_bg: Option<String>,
