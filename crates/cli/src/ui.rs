@@ -3318,20 +3318,25 @@ fn render_sessions(f: &mut Frame, area: Rect, app: &mut App) {
         .or_else(|| list_collapse_button_range(area).map(|(xs, _, _)| xs))
         .unwrap_or_else(|| area.x.saturating_add(area.width));
     // The jump-key hint sits right after the title and outranks the tallies
-    // for space on a narrow pane (spec 0220).
-    let hint_spans = keymap_pair_hint(app, KeyAction::NextListStop, KeyAction::PrevListStop, "jump")
-        .map(|hint| title_hint_spans(&app.theme, &hint))
-        .unwrap_or_default();
-    let mut hint_w: u16 = hint_spans.iter().map(|s| s.width() as u16).sum();
-    if area
-        .x
-        .saturating_add(LIST_TITLE_BASE_W)
-        .saturating_add(hint_w)
-        < title_right_limit
-    {
-        title_spans.extend(hint_spans);
-    } else {
-        hint_w = 0;
+    // for space on a narrow pane (spec 0220). The default-width compact
+    // pane can't fit the label, so it falls back to the bare keys.
+    let hint = keymap_pair_hint(app, KeyAction::NextListStop, KeyAction::PrevListStop, "jump");
+    let fits = |spans: &[Span]| {
+        let w: u16 = spans.iter().map(|s| s.width() as u16).sum();
+        (area.x.saturating_add(LIST_TITLE_BASE_W).saturating_add(w) < title_right_limit)
+            .then_some(w)
+    };
+    let mut hint_w: u16 = 0;
+    if let Some(hint) = hint {
+        let keys_only = hint.trim_end_matches(" jump");
+        for text in [hint.as_str(), keys_only] {
+            let spans = title_hint_spans(&app.theme, text);
+            if let Some(w) = fits(&spans) {
+                hint_w = w;
+                title_spans.extend(spans);
+                break;
+            }
+        }
     }
     if area
         .x

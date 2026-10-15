@@ -242,6 +242,10 @@ pub struct ItemHistory {
     /// Whether the next [`replay`] should account for a mutation.
     /// Set by every mutation; cleared by `replay`.
     pub dirty: bool,
+    /// Built only from live events, never from the daemon's replay: it
+    /// holds whatever arrived after this TUI attached (often just in-place
+    /// redraw fragments), so hydration must still replace it.
+    pub live_only: bool,
     /// Persistent `vt100::Parser` reused across frames for sessions
     /// without tool blocks (claude / codex / shell) — these never
     /// have items mutate underfoot, so we can process only the
@@ -470,7 +474,16 @@ impl ItemHistory {
             pending_block_hydrations: VecDeque::new(),
             pending_tool_results: HashMap::new(),
             dirty: true,
+            live_only: false,
             cached: None,
+        }
+    }
+
+    /// A history created by a live event for a session not hydrated yet.
+    pub fn live_only() -> Self {
+        Self {
+            live_only: true,
+            ..Self::new()
         }
     }
 

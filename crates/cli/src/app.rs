@@ -6519,7 +6519,7 @@ async fn run_loop(
             }
             if background_hydration_task.is_none() {
                 while let Some(id) = background_hydration_queue.pop_front() {
-                    if selected_hydrating.contains(&id) || app.histories.contains_key(&id) {
+                    if selected_hydrating.contains(&id) || app.has_hydrated_history(&id) {
                         app.hydrating_sessions.remove(&id);
                         continue;
                     }
@@ -8568,6 +8568,12 @@ impl App {
         self.selected_session().map(|s| s.id.clone())
     }
 
+    /// Whether `id` has a history worth keeping over the daemon's replay:
+    /// anything except one assembled from live events alone.
+    fn has_hydrated_history(&self, id: &str) -> bool {
+        self.histories.get(id).is_some_and(|h| !h.live_only)
+    }
+
     fn selected_needs_hydration(&self) -> bool {
         let Some(id) = self.selection.session_id() else {
             return false;
@@ -8584,7 +8590,7 @@ impl App {
         // false and nothing was fetched. Without this re-trigger the
         // view stays stuck on "(no PTY history yet)" until a live PTY
         // event (e.g. the user presses a key) recreates the entry.
-        self.view == ViewMode::Terminal && !self.histories.contains_key(id)
+        self.view == ViewMode::Terminal && !self.has_hydrated_history(id)
     }
 
     fn selected_hydration_request(&self) -> Option<SessionHydrationRequest> {
@@ -8596,7 +8602,7 @@ impl App {
         // `selected_needs_hydration`, which guarantees `needs_history`
         // ends up true here (the fetch always inserts an entry, so the
         // re-trigger can't spin).
-        let needs_history = self.view == ViewMode::Terminal && !self.histories.contains_key(&id);
+        let needs_history = self.view == ViewMode::Terminal && !self.has_hydrated_history(&id);
         Some(self.session_hydration_request(&id, needs_history))
     }
 
@@ -8693,7 +8699,7 @@ impl App {
             .filter(|id| {
                 self.sessions
                     .iter()
-                    .any(|s| s.id == *id && s.has_pty && !self.histories.contains_key(&s.id))
+                    .any(|s| s.id == *id && s.has_pty && !self.has_hydrated_history(&s.id))
             })
             .collect()
     }
@@ -8703,7 +8709,7 @@ impl App {
         let needs_history = self
             .sessions
             .iter()
-            .any(|s| s.id == *id && s.has_pty && !self.histories.contains_key(&s.id));
+            .any(|s| s.id == *id && s.has_pty && !self.has_hydrated_history(&s.id));
         let needs_ui_panels = !self.ui_panels.contains_key(id);
         (needs_history || needs_ui_panels).then(|| id.clone())
     }
@@ -8758,7 +8764,7 @@ impl App {
             .into_iter()
             .filter(|id| {
                 self.sessions.iter().any(|s| &s.id == id && s.has_pty)
-                    && !self.histories.contains_key(id)
+                    && !self.has_hydrated_history(id)
             })
             .collect()
     }
@@ -9448,7 +9454,7 @@ impl App {
         if self.selection.session_id() == Some(id.as_str()) {
             self.start_session_transition();
         }
-        let bootstrap_inputs = (natural == ViewMode::Terminal && !self.histories.contains_key(&id))
+        let bootstrap_inputs = (natural == ViewMode::Terminal && !self.has_hydrated_history(&id))
             .then(|| self.terminal_bootstrap_inputs(&id));
         self.selected_load_generation = self.selected_load_generation.wrapping_add(1);
         let generation = self.selected_load_generation;
@@ -9512,7 +9518,7 @@ impl App {
             self.set_status(e);
         }
         if let Some(bootstrap) = bootstrap {
-            let had_history = self.histories.contains_key(&session_id);
+            let had_history = self.has_hydrated_history(&session_id);
             self.apply_terminal_bootstrap(&session_id, *bootstrap);
             if !had_history {
                 self.spawn_bootstrapped_pty_resize(&session_id);
@@ -9521,7 +9527,7 @@ impl App {
     }
 
     async fn bootstrap_terminal(&mut self, id: &str) {
-        if self.histories.contains_key(id) {
+        if self.has_hydrated_history(id) {
             return;
         }
         let inputs = self.terminal_bootstrap_inputs(id);
@@ -9546,10 +9552,13 @@ impl App {
     }
 
     /// Install a rehydrated terminal history and the session state replayed
-    /// alongside it. A history created by the live path while the fetch was
-    /// in flight wins — it has seen bytes the snapshot predates.
+    /// alongside it. A hydrated history installed while the fetch was in
+    /// flight wins. A live-only one does not: it may hold nothing but
+    /// in-place redraw fragments, which render as a blank pane.
+    /// shortcut: live bytes that land between the replay read and this
+    /// install are dropped; splicing them needs PTY offsets on live events.
     fn apply_terminal_bootstrap(&mut self, id: &str, bootstrap: TerminalBootstrap) {
-        if self.histories.contains_key(id) {
+        if self.has_hydrated_history(id) {
             return;
         }
         if let Some(err) = bootstrap.errors.last() {
@@ -10833,7 +10842,7 @@ impl App {
                                 let history = self
                                     .histories
                                     .entry(payload.session_id.clone())
-                                    .or_default();
+                                    .or_insert_with(crate::pty_render::ItemHistory::live_only);
                                 history.feed_pty(b);
                             }
                             if is_active {
@@ -10883,7 +10892,7 @@ impl App {
                                 let history = self
                                     .histories
                                     .entry(payload.session_id.clone())
-                                    .or_default();
+                                    .or_insert_with(crate::pty_render::ItemHistory::live_only);
                                 history.feed_tool_use(tool.clone(), summarize_tool_args(args));
                             }
                         }
@@ -10902,7 +10911,7 @@ impl App {
                             let history = self
                                 .histories
                                 .entry(payload.session_id.clone())
-                                .or_default();
+                                .or_insert_with(crate::pty_render::ItemHistory::live_only);
                             history.feed_task_start(
                                 call_id.clone(),
                                 tool.clone(),
@@ -10919,7 +10928,7 @@ impl App {
                             let history = self
                                 .histories
                                 .entry(payload.session_id.clone())
-                                .or_default();
+                                .or_insert_with(crate::pty_render::ItemHistory::live_only);
                             // Correlate by the explicit `call_id` when present;
                             // legacy transcripts (call_id == None) still carry
                             // the id in the `tool` field, so fall back to it.
@@ -10968,14 +10977,14 @@ impl App {
                                 let history = self
                                     .histories
                                     .entry(payload.session_id.clone())
-                                    .or_default();
+                                    .or_insert_with(crate::pty_render::ItemHistory::live_only);
                                 history.feed_turn_boundary(payload.seq.saturating_sub(1));
                             }
                             if headless {
                                 let history = self
                                     .histories
                                     .entry(payload.session_id.clone())
-                                    .or_default();
+                                    .or_insert_with(crate::pty_render::ItemHistory::live_only);
                                 history.feed_message(kind, &text);
                             }
                             // The project dashboard's member cards quote the
@@ -11122,7 +11131,7 @@ impl App {
                                     let history = self
                                         .histories
                                         .entry(payload.session_id.clone())
-                                        .or_default();
+                                        .or_insert_with(crate::pty_render::ItemHistory::live_only);
                                     history.feed_pty(&bytes);
                                 }
                             }
@@ -36962,6 +36971,38 @@ mod tests {
 
         assert!(app.session_transitions.is_empty());
         assert!(app.histories.contains_key("s1"));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn live_only_history_is_replaced_by_terminal_bootstrap() {
+        let (mut app, _dir, server) = captured_app().await;
+        app.selection = Selection::Session("s1".into());
+        app.transcript_session = Some("s1".into());
+        app.view = ViewMode::Terminal;
+        // Live redraw fragments arrived before the session was ever opened.
+        app.histories
+            .insert("s1".into(), crate::pty_render::ItemHistory::live_only());
+
+        assert!(app.selected_needs_hydration());
+        assert!(
+            app.selected_hydration_request()
+                .is_some_and(|req| req.needs_history)
+        );
+
+        app.apply_terminal_bootstrap(
+            "s1",
+            TerminalBootstrap {
+                history: crate::pty_render::ItemHistory::new(),
+                editor_state: None,
+                agent_status: None,
+                ui_panels: HashMap::new(),
+                errors: Vec::new(),
+            },
+        );
+
+        assert!(!app.histories["s1"].live_only);
+        assert!(!app.selected_needs_hydration());
         server.abort();
     }
 
