@@ -226,6 +226,37 @@ pub struct Keymap {
     pub bindings: Vec<(Chord, KeyAction)>,
 }
 
+impl Keymap {
+    /// Display labels of the chords bound to `action`, in table order, for
+    /// key hints that must show what is actually bound. A shifted twin of a
+    /// char binding (`S-}` beside `}`, kept for terminals that report Shift)
+    /// is the same key to the user, so it is listed once.
+    pub fn labels_for(&self, action: KeyAction) -> Vec<String> {
+        let mut labels: Vec<String> = Vec::new();
+        for (chord, bound) in &self.bindings {
+            if *bound != action {
+                continue;
+            }
+            let label = chord
+                .0
+                .iter()
+                .map(|k| {
+                    let mut k = *k;
+                    if matches!(k.code, KeyCode::Char(_)) {
+                        k.modifiers.remove(KeyModifiers::SHIFT);
+                    }
+                    format_key(&k)
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            if !labels.contains(&label) {
+                labels.push(label);
+            }
+        }
+        labels
+    }
+}
+
 #[derive(Default)]
 pub struct ChordState {
     pending: Vec<KeyEvent>,
@@ -933,6 +964,15 @@ mod tests {
         assert_action(&km, vec![shift('{')], KeyAction::PrevListStop);
         assert_action(&km, vec![ch(']'), ch(']')], KeyAction::NextListStop);
         assert_action(&km, vec![ch('['), ch('[')], KeyAction::PrevListStop);
+    }
+
+    #[test]
+    fn labels_for_lists_bound_chords_without_shifted_twins() {
+        let km = default_for(Profile::Emacs);
+        assert_eq!(km.labels_for(KeyAction::NextListStop), vec!["M-n"]);
+        let km = default_for(Profile::Vim);
+        assert_eq!(km.labels_for(KeyAction::NextListStop), vec!["}", "] ]"]);
+        assert_eq!(km.labels_for(KeyAction::PrevListStop), vec!["{", "[ ["]);
     }
 
     #[test]

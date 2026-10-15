@@ -3317,15 +3317,36 @@ fn render_sessions(f: &mut Frame, area: Rect, app: &mut App) {
         .map(|(xs, _, _)| xs)
         .or_else(|| list_collapse_button_range(area).map(|(xs, _, _)| xs))
         .unwrap_or_else(|| area.x.saturating_add(area.width));
+    // The jump-key hint sits right after the title and outranks the tallies
+    // for space on a narrow pane (spec 0220).
+    let hint_spans = keymap_pair_hint(app, KeyAction::NextListStop, KeyAction::PrevListStop, "jump")
+        .map(|hint| title_hint_spans(&app.theme, &hint))
+        .unwrap_or_default();
+    let mut hint_w: u16 = hint_spans.iter().map(|s| s.width() as u16).sum();
     if area
         .x
         .saturating_add(LIST_TITLE_BASE_W)
+        .saturating_add(hint_w)
+        < title_right_limit
+    {
+        title_spans.extend(hint_spans);
+    } else {
+        hint_w = 0;
+    }
+    if area
+        .x
+        .saturating_add(LIST_TITLE_BASE_W)
+        .saturating_add(hint_w)
         .saturating_add(tally_w)
         < title_right_limit
     {
         // The title paints from the first cell inside the left border, so
         // that's where the hover geometry has to start counting from.
-        let mut cursor = area.x.saturating_add(1).saturating_add(LIST_TITLE_BASE_W);
+        let mut cursor = area
+            .x
+            .saturating_add(1)
+            .saturating_add(LIST_TITLE_BASE_W)
+            .saturating_add(hint_w);
         for ((kind, _n), text) in tallies.iter().zip(tally_texts) {
             let w = UnicodeWidthStr::width(text.as_str()) as u16;
             // The hit zone covers the count and glyph but not the trailing
@@ -7414,13 +7435,17 @@ fn render_route_menu(f: &mut Frame, app: &App) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(app.theme.border))
-        .title(Span::styled(
-            // Titled for the component (the router), while rows and
-            // descriptions keep the effect language ("No redirect", …).
-            " model router ",
-            Style::default()
-                .fg(app.theme.accent)
-                .add_modifier(Modifier::BOLD),
+        .title(title_with_hints(
+            &app.theme,
+            Span::styled(
+                // Titled for the component (the router), while rows and
+                // descriptions keep the effect language ("No redirect", …).
+                " model router ",
+                Style::default()
+                    .fg(app.theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            "[Enter] pick · [Esc] close",
         ));
     f.render_widget(Clear, area);
     f.render_widget(block, area);
@@ -8136,6 +8161,27 @@ pub(crate) fn key_hint_spans(theme: &Theme, text: &str, base: Style) -> Vec<Span
     spans
 }
 
+/// `[M-n]/[M-p] jump` for a next/prev action pair, read from the live keymap
+/// so the hint shows what is actually bound; `None` when either is unbound.
+fn keymap_pair_hint(app: &App, next: KeyAction, prev: KeyAction, label: &str) -> Option<String> {
+    let next = app.keymap.labels_for(next).into_iter().next()?;
+    let prev = app.keymap.labels_for(prev).into_iter().next()?;
+    Some(format!("[{next}]/[{prev}] {label}"))
+}
+
+/// Key hints that trail a title on its top border (spec 0220): dim prose,
+/// keys in `key_hint`, closed by the border's breathing space.
+fn title_hint_spans(theme: &Theme, hints: &str) -> Vec<Span<'static>> {
+    key_hint_spans(theme, &format!("{hints} "), Style::default().fg(theme.dim))
+}
+
+/// `title` followed by its key hints, for a dialog's top border.
+fn title_with_hints<'a>(theme: &Theme, title: Span<'a>, hints: &str) -> Line<'a> {
+    let mut spans = vec![title];
+    spans.extend(title_hint_spans(theme, hints));
+    Line::from(spans)
+}
+
 /// `base` recolored with the theme's key-hint foreground.
 pub(crate) fn key_hint_style(theme: &Theme, base: Style) -> Style {
     base.fg(theme.key_hint)
@@ -8255,7 +8301,11 @@ fn render_detail(f: &mut Frame, area: Rect, app: &mut App, window_id: Option<u64
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(pane_border_style(&app.theme, focused))
-            .title(" diff (ESC clears; press d to refresh) ");
+            .title(title_with_hints(
+                &app.theme,
+                Span::raw(" diff "),
+                "[Esc] clear · [d] refresh",
+            ));
         let para = Paragraph::new(diff.clone())
             .block(block)
             .wrap(Wrap { trim: false });
@@ -16558,19 +16608,23 @@ fn render_tasks_popup(f: &mut Frame, app: &mut App) {
     app.layout.modal_area = Some(rect);
     app.layout.modal_owner = Some(ModalOwner::Tasks);
     let title = format!(
-        " tasks — session {} ({} entries) — Esc to close ",
+        " tasks — session {} ({} entries) ",
         short_id(&popup.session_id),
         popup.tasks.len()
     );
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(app.theme.border_focused))
-        .title(Line::from(Span::styled(
-            title,
-            Style::default()
-                .fg(app.theme.info)
-                .add_modifier(Modifier::BOLD),
-        )));
+        .title(title_with_hints(
+            &app.theme,
+            Span::styled(
+                title,
+                Style::default()
+                    .fg(app.theme.info)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            "[Esc] close",
+        ));
     let inner = block.inner(rect);
     f.render_widget(Clear, rect);
     f.render_widget(block, rect);
@@ -20188,12 +20242,16 @@ fn render_playbook_smart_clip_picker(
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(app.theme.accent_alt))
-        .title(Line::from(Span::styled(
-            title,
-            Style::default()
-                .fg(app.theme.accent_alt)
-                .add_modifier(Modifier::BOLD),
-        )));
+        .title(title_with_hints(
+            &app.theme,
+            Span::styled(
+                title,
+                Style::default()
+                    .fg(app.theme.accent_alt)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            "[Enter] pick · [Esc] close",
+        ));
     let inner = block.inner(rect);
     f.render_widget(Clear, rect);
     f.render_widget(block, rect);
@@ -20440,12 +20498,21 @@ fn render_session_picker(f: &mut Frame, app: &mut App) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(app.theme.accent_alt))
-        .title(Line::from(Span::styled(
-            title,
-            Style::default()
-                .fg(app.theme.accent_alt)
-                .add_modifier(Modifier::BOLD),
-        )));
+        .title({
+            let title = Span::styled(
+                title,
+                Style::default()
+                    .fg(app.theme.accent_alt)
+                    .add_modifier(Modifier::BOLD),
+            );
+            // The switcher's footer already lists its keys; the anchored
+            // variant has no footer, so its title carries them.
+            if show_search {
+                Line::from(title)
+            } else {
+                title_with_hints(&app.theme, title, "[Enter] pick · [Esc] close")
+            }
+        });
     let inner = block.inner(rect);
     f.render_widget(Clear, rect);
     f.render_widget(block, rect);
