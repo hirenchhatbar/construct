@@ -13,11 +13,11 @@ pub enum KeyAction {
     Quit,
     NextSession,
     PrevSession,
-    /// Jump the list selection to the next / previous project header,
-    /// wrapping. Bound `M-n` / `M-p` (emacs) and `}` / `{` or `]]` / `[[`
-    /// (vim).
-    NextProject,
-    PrevProject,
+    /// Jump the list selection to the next / previous project header or
+    /// live session, wrapping. Bound `M-n` / `M-p` (emacs) and `}` / `{` or
+    /// `]]` / `[[` (vim).
+    NextListStop,
+    PrevListStop,
     Refresh,
     EnterInsert,
     OpenSendInput,
@@ -333,8 +333,8 @@ fn emacs() -> Keymap {
         (Chord(vec![ctrl('p')]), PrevSession),
         (Chord(vec![key(KeyCode::Down)]), NextSession),
         (Chord(vec![key(KeyCode::Up)]), PrevSession),
-        (Chord(vec![alt('n')]), NextProject),
-        (Chord(vec![alt('p')]), PrevProject),
+        (Chord(vec![alt('n')]), NextListStop),
+        (Chord(vec![alt('p')]), PrevListStop),
         // Focus + view (C-x prefix, matching emacs window commands).
         // Enter from the list "drills in" to the session view; Tab is
         // intentionally left unbound for future use (e.g. completion).
@@ -441,12 +441,12 @@ fn vim() -> Keymap {
         (Chord(vec![ch('k')]), PrevSession),
         (Chord(vec![key(KeyCode::Down)]), NextSession),
         (Chord(vec![key(KeyCode::Up)]), PrevSession),
-        (Chord(vec![ch('}')]), NextProject),
-        (Chord(vec![shift('}')]), NextProject),
-        (Chord(vec![ch('{')]), PrevProject),
-        (Chord(vec![shift('{')]), PrevProject),
-        (Chord(vec![ch(']'), ch(']')]), NextProject),
-        (Chord(vec![ch('['), ch('[')]), PrevProject),
+        (Chord(vec![ch('}')]), NextListStop),
+        (Chord(vec![shift('}')]), NextListStop),
+        (Chord(vec![ch('{')]), PrevListStop),
+        (Chord(vec![shift('{')]), PrevListStop),
+        (Chord(vec![ch(']'), ch(']')]), NextListStop),
+        (Chord(vec![ch('['), ch('[')]), PrevListStop),
         (Chord(vec![ch('i')]), EnterInsert),
         (Chord(vec![ch('a')]), EnterInsert),
         (Chord(vec![shift('I')]), OpenSendInput),
@@ -924,15 +924,15 @@ mod tests {
     #[test]
     fn project_jump_keys_resolve_in_both_profiles() {
         let km = default_for(Profile::Emacs);
-        assert_action(&km, vec![alt('n')], KeyAction::NextProject);
-        assert_action(&km, vec![alt('p')], KeyAction::PrevProject);
+        assert_action(&km, vec![alt('n')], KeyAction::NextListStop);
+        assert_action(&km, vec![alt('p')], KeyAction::PrevListStop);
         let km = default_for(Profile::Vim);
-        assert_action(&km, vec![ch('}')], KeyAction::NextProject);
-        assert_action(&km, vec![shift('}')], KeyAction::NextProject);
-        assert_action(&km, vec![ch('{')], KeyAction::PrevProject);
-        assert_action(&km, vec![shift('{')], KeyAction::PrevProject);
-        assert_action(&km, vec![ch(']'), ch(']')], KeyAction::NextProject);
-        assert_action(&km, vec![ch('['), ch('[')], KeyAction::PrevProject);
+        assert_action(&km, vec![ch('}')], KeyAction::NextListStop);
+        assert_action(&km, vec![shift('}')], KeyAction::NextListStop);
+        assert_action(&km, vec![ch('{')], KeyAction::PrevListStop);
+        assert_action(&km, vec![shift('{')], KeyAction::PrevListStop);
+        assert_action(&km, vec![ch(']'), ch(']')], KeyAction::NextListStop);
+        assert_action(&km, vec![ch('['), ch('[')], KeyAction::PrevListStop);
     }
 
     #[test]

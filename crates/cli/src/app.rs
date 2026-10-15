@@ -10349,10 +10349,9 @@ impl App {
     }
 
     /// Jump the selection to the next (`delta > 0`) or previous project
-    /// header in the materialized list, wrapping at the ends. Backward from
-    /// inside a project lands on that project's own header first. No-op
-    /// when the list has no projects.
-    async fn step_project(&mut self, delta: i32) {
+    /// header or live session in the materialized list, wrapping at the
+    /// ends. Operators, "N archived" rows and archived sessions are skipped.
+    async fn step_list_stop(&mut self, delta: i32) {
         let items = self.list_items();
         let n = items.len();
         let cur = items
@@ -10367,14 +10366,17 @@ impl App {
                     (cur + n - step % n) % n
                 }
             })
-            .find_map(|i| match &items[i] {
-                ListItem::GroupHeader { group, .. } => Some(group.id.clone()),
-                _ => None,
+            .find(|&i| match &items[i] {
+                ListItem::GroupHeader { .. } => true,
+                ListItem::Session { summary, .. } => !summary.archived,
+                _ => false,
             });
-        if let Some(id) = next {
-            self.select_group(id);
-            self.sync_active_window_selection();
+        match next.map(|i| &items[i]) {
+            Some(ListItem::GroupHeader { group, .. }) => self.select_group(group.id.clone()),
+            Some(ListItem::Session { summary, .. }) => self.select_session(summary.id.clone()),
+            _ => return,
         }
+        self.sync_active_window_selection();
     }
 
     fn is_collapsed_ungrouped_archive_row(item: &ListItem) -> bool {
@@ -14074,8 +14076,8 @@ impl App {
                     self.step_selection(-1).await;
                 }
             }
-            NextProject => self.step_project(1).await,
-            PrevProject => self.step_project(-1).await,
+            NextListStop => self.step_list_stop(1).await,
+            PrevListStop => self.step_list_stop(-1).await,
             Refresh => {
                 self.refresh_sessions().await;
                 self.transcript_session = None;
@@ -49994,6 +49996,54 @@ mod tests {
             app.selection,
             Selection::ArchivedRow(ArchiveSection::Ungrouped)
         );
+    }
+
+    #[tokio::test]
+    async fn list_stop_jumps_visit_project_headers_and_live_sessions() {
+        let (mut app, _dir, server) = empty_app().await;
+        let mut loose = summary_with_kind(construct_protocol::SessionKind::User);
+        loose.id = "loose".into();
+        let mut archived = summary_with_kind(construct_protocol::SessionKind::User);
+        archived.id = "arch".into();
+        archived.position = 1;
+        archived.archived = true;
+        let mut member = summary_with_kind(construct_protocol::SessionKind::User);
+        member.id = "m1".into();
+        member.group_id = Some("p".into());
+        app.sessions = vec![loose, archived, member];
+        app.groups = vec![GroupSummary {
+            id: "p".into(),
+            name: "P".into(),
+            created_at: chrono::Utc::now(),
+            position: 0,
+            collapsed: false,
+            cwd: None,
+        }];
+        app.select_session("loose".into());
+        assert!(
+            app.list_items()
+                .iter()
+                .any(|it| matches!(it, ListItem::ArchivedRow { .. })),
+            "fixture must include an archive row to skip"
+        );
+
+        let mut forward = Vec::new();
+        for _ in 0..3 {
+            app.run_action(KeyAction::NextListStop).await;
+            forward.push(app.selection.clone());
+        }
+        assert_eq!(
+            forward,
+            vec![
+                Selection::Group("p".into()),
+                Selection::Session("m1".into()),
+                Selection::Session("loose".into()),
+            ],
+            "archive rows are skipped and the jump wraps"
+        );
+        app.run_action(KeyAction::PrevListStop).await;
+        assert_eq!(app.selection, Selection::Session("m1".into()));
+        server.abort();
     }
 
     #[tokio::test]

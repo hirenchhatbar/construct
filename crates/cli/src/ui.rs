@@ -14670,7 +14670,7 @@ emacs keymap (default; CONSTRUCT_KEYMAP=vim for vim profile)
     [C-x z]               zoom: fill the screen with the session view
     [C-n] / [down]        next session
     [C-p] / [up]          prev session
-    [M-n] / [M-p]         next/prev project
+    [M-n] / [M-p]         next/prev project or session
 
   session actions
     [C-x C-f]             new session
@@ -14745,7 +14745,7 @@ vim keymap (CONSTRUCT_KEYMAP=vim; unset for emacs profile)
     [v] / [C-x t]         toggle chat ↔ terminal view
     [z] / [C-w z]         zoom: fill the screen with the session view
     [j]/[k]/[down]/[up]   next/prev session
-    [}]/[{] []]]/[[[]     next/prev project
+    [}]/[{] []]]/[[[]     next/prev project or session
 
   session actions
     [o] / [n]             new session
