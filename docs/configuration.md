@@ -165,6 +165,13 @@ with:
 animations = true
 ```
 
+The git diff pane (`C-x d` / `g d`) opens in the unified view. To open it side
+by side instead (`s` still toggles while it is open):
+
+```toml
+diff_view = "split"
+```
+
 ### Color depth
 
 The palette is authored in 24-bit color. Terminals that only speak 256 colors

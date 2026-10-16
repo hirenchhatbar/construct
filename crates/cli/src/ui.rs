@@ -2438,9 +2438,8 @@ fn render_zoomed_view(f: &mut Frame, area: Rect, app: &mut App) {
     app.layout.list_items_area = None;
     app.layout.list_scroll_offset = 0;
 
-    if let Some(diff) = &app.last_diff {
-        let para = Paragraph::new(diff.clone()).wrap(Wrap { trim: false });
-        f.render_widget(para, main_area);
+    if app.last_diff.is_some() {
+        render_diff_body(f, main_area, app);
     } else {
         match app.view {
             ViewMode::Terminal => render_terminal(f, main_area, app),
@@ -8292,6 +8291,150 @@ fn session_title_menu_action_label(
     (label, binding)
 }
 
+/// Line colour as `git diff --color` would paint it: added/removed lines in
+/// success/danger, hunk headers in info, file headers dimmed.
+fn diff_line_style(theme: &Theme, l: &str) -> Style {
+    if ["+++", "---", "diff ", "index "]
+        .iter()
+        .any(|p| l.starts_with(p))
+    {
+        Style::default().fg(theme.dim).add_modifier(Modifier::BOLD)
+    } else if l.starts_with('+') {
+        Style::default().fg(theme.success)
+    } else if l.starts_with('-') {
+        Style::default().fg(theme.danger)
+    } else if l.starts_with("@@") {
+        Style::default().fg(theme.info)
+    } else {
+        Style::default().fg(theme.text)
+    }
+}
+
+/// Unified-diff patch, one coloured `Line` per patch line.
+fn diff_lines(theme: &Theme, patch: &str) -> Vec<Line<'static>> {
+    patch
+        .lines()
+        .map(|l| Line::styled(l.to_string(), diff_line_style(theme, l)))
+        .collect()
+}
+
+/// One row of the side-by-side diff view.
+#[derive(Debug, PartialEq)]
+enum DiffRow {
+    /// File / hunk header (or `\ No newline` marker): spans both columns.
+    Full(String),
+    /// Old and new side. Each side is `(marker, text)` with marker `-`, `+`
+    /// or ` ` (context); `None` is filler where the other side has more lines.
+    Pair(Option<(char, String)>, Option<(char, String)>),
+}
+
+/// Pairs a unified patch into side-by-side rows: context lines on both
+/// sides, and each run of removed lines matched in order against the added
+/// lines that follow it.
+fn diff_rows(patch: &str) -> Vec<DiffRow> {
+    fn flush(rows: &mut Vec<DiffRow>, del: &mut Vec<String>, add: &mut Vec<String>) {
+        let n = del.len().max(add.len());
+        let mut d = del.drain(..);
+        let mut a = add.drain(..);
+        for _ in 0..n {
+            rows.push(DiffRow::Pair(
+                d.next().map(|t| ('-', t)),
+                a.next().map(|t| ('+', t)),
+            ));
+        }
+    }
+    let (mut rows, mut del, mut add) = (Vec::new(), Vec::new(), Vec::new());
+    // Inside a hunk `+++`/`---` are content, not file headers.
+    let mut in_hunk = false;
+    for l in patch.lines() {
+        if l.starts_with("diff ") {
+            in_hunk = false;
+        } else if l.starts_with("@@") {
+            in_hunk = true;
+        } else if in_hunk {
+            if let Some(t) = l.strip_prefix('-') {
+                if !add.is_empty() {
+                    flush(&mut rows, &mut del, &mut add);
+                }
+                del.push(t.to_string());
+                continue;
+            }
+            if let Some(t) = l.strip_prefix('+') {
+                add.push(t.to_string());
+                continue;
+            }
+            if let Some(t) = l.strip_prefix(' ') {
+                flush(&mut rows, &mut del, &mut add);
+                rows.push(DiffRow::Pair(Some((' ', t.to_string())), Some((' ', t.to_string()))));
+                continue;
+            }
+        }
+        flush(&mut rows, &mut del, &mut add);
+        rows.push(DiffRow::Full(l.to_string()));
+    }
+    flush(&mut rows, &mut del, &mut add);
+    rows
+}
+
+/// Paints the diff pane's content into `area` (inside any border): unified
+/// (wrapped) or side-by-side (truncated, so both columns stay row-aligned),
+/// scrolled by `diff_scroll_offset` (clamped here), with a scrollbar.
+fn render_diff_body(f: &mut Frame, area: Rect, app: &mut App) {
+    let Some(diff) = app.last_diff.as_deref() else {
+        return;
+    };
+    let theme = &app.theme;
+    let height = area.height as usize;
+    if !app.diff_side_by_side {
+        let rows: usize = diff
+            .lines()
+            .map(|l| playbook_wrap_row_starts(l, area.width as usize).len())
+            .sum();
+        let max = rows.saturating_sub(height);
+        app.diff_scroll_offset = app.diff_scroll_offset.min(max);
+        let scroll = app.diff_scroll_offset.min(u16::MAX as usize) as u16;
+        let para = Paragraph::new(diff_lines(theme, diff))
+            .wrap(Wrap { trim: false })
+            .scroll((scroll, 0));
+        f.render_widget(para, area);
+        render_scroll_overlay(f, area, theme, true, scroll as usize, max);
+        return;
+    }
+    let rows = diff_rows(diff);
+    let max = rows.len().saturating_sub(height);
+    app.diff_scroll_offset = app.diff_scroll_offset.min(max);
+    let half = area.width / 2;
+    let side_style = |m: char| match m {
+        '-' => Style::default().fg(theme.danger),
+        '+' => Style::default().fg(theme.success),
+        _ => Style::default().fg(theme.text),
+    };
+    for (i, row) in rows.iter().skip(app.diff_scroll_offset).take(height).enumerate() {
+        let y = area.y + i as u16;
+        match row {
+            DiffRow::Full(t) => f.render_widget(
+                Paragraph::new(Line::styled(t.clone(), diff_line_style(theme, t))),
+                Rect::new(area.x, y, area.width, 1),
+            ),
+            DiffRow::Pair(old, new) => {
+                let side = |s: &Option<(char, String)>| match s {
+                    Some((m, t)) => Span::styled(t.clone(), side_style(*m)),
+                    None => Span::raw(""),
+                };
+                f.render_widget(Paragraph::new(Line::from(side(old))), Rect::new(area.x, y, half, 1));
+                f.render_widget(
+                    Paragraph::new(Line::from(vec![
+                        Span::styled("│", Style::default().fg(theme.dim)),
+                        side(new),
+                    ])),
+                    Rect::new(area.x + half, y, area.width - half, 1),
+                );
+            }
+        }
+    }
+    render_scroll_overlay(f, area, theme, true, app.diff_scroll_offset, max);
+}
+
 fn render_detail(f: &mut Frame, area: Rect, app: &mut App, window_id: Option<u64>) {
     // `active_window_id` survives focus moving to the session list, so it
     // doubles as the "last focused pane" marker: that pane's title text keeps
@@ -8302,19 +8445,18 @@ fn render_detail(f: &mut Frame, area: Rect, app: &mut App, window_id: Option<u64
     // something"): reuses `pane_border_style`'s focused styling.
     let focused =
         last_focused && (app.focus == PaneFocus::View || app.tutorial_wants_view_highlight());
-    if let Some(diff) = &app.last_diff {
+    if app.last_diff.is_some() {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(pane_border_style(&app.theme, focused))
             .title(title_with_hints(
                 &app.theme,
                 Span::raw(" diff "),
-                "[Esc] clear · [d] refresh",
+                "[Esc] clear · [d] refresh · [s] split · [↑↓ PgUp PgDn] scroll",
             ));
-        let para = Paragraph::new(diff.clone())
-            .block(block)
-            .wrap(Wrap { trim: false });
-        f.render_widget(para, area);
+        let inner = block.inner(area);
+        f.render_widget(block, area);
+        render_diff_body(f, inner, app);
         clear_pane_side_borders(f, area, app);
         return;
     }
@@ -9968,7 +10110,7 @@ fn render_group_overview(
     group: &construct_protocol::GroupSummary,
 ) {
     let members = crate::project_dashboard::project_members(&app.sessions, &group.id);
-    let interactive = app.focus == crate::app::PaneFocus::View;
+    let interactive = app.project_dashboard_interactive();
     let now = Instant::now();
     let now_ms = chrono::Utc::now().timestamp_millis();
     crate::project_dashboard::render(
@@ -24328,6 +24470,45 @@ mod remote_popup_tests {
         let labels: Vec<_> = rows.iter().map(|(label, _, _)| *label).collect();
 
         assert_eq!(labels, vec!["lan:", "local:"]);
+    }
+
+    #[test]
+    fn diff_lines_colors_by_line_kind() {
+        let theme = Theme::default();
+        let lines = diff_lines(&theme, "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+new\n ctx");
+        let fg: Vec<_> = lines.iter().map(|l| l.style.fg).collect();
+        assert_eq!(
+            fg,
+            vec![
+                Some(theme.dim),
+                Some(theme.dim),
+                Some(theme.info),
+                Some(theme.danger),
+                Some(theme.success),
+                Some(theme.text),
+            ]
+        );
+    }
+
+    #[test]
+    fn diff_rows_pairs_removed_with_added_lines() {
+        use DiffRow::{Full, Pair};
+        let s = |m: char, t: &str| Some((m, t.to_string()));
+        let patch = "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1,4 +1,3 @@\n ctx\n-a\n-b\n+A\n---dashes\n+c\n";
+        assert_eq!(
+            diff_rows(patch),
+            vec![
+                Full("diff --git a/x b/x".into()),
+                Full("--- a/x".into()),
+                Full("+++ b/x".into()),
+                Full("@@ -1,4 +1,3 @@".into()),
+                Pair(s(' ', "ctx"), s(' ', "ctx")),
+                Pair(s('-', "a"), s('+', "A")),
+                Pair(s('-', "b"), None),
+                // A removed line starting with `--` inside a hunk is content.
+                Pair(s('-', "--dashes"), s('+', "c")),
+            ]
+        );
     }
 
     #[test]

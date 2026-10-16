@@ -71,6 +71,10 @@ pub struct ProjectDashboard {
     pub active_project: Option<String>,
     /// Hovered member (mouse) — highlights without selecting.
     pub hover_session: Option<String>,
+    /// Set by Enter on the project header; only then do Up/Down drive the
+    /// member cursor. Cleared whenever the project selection changes, so
+    /// arrowing onto a project from the view pane keeps walking the list.
+    pub engaged: bool,
     /// project_id → live token meter (fed from Cost events).
     pub token_meters: HashMap<String, TokenMeter>,
     /// Hit zones from the last render.

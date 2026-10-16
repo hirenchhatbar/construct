@@ -260,6 +260,15 @@ impl ThemeConfig {
             .unwrap_or(false)
     }
 
+    /// `diff_view = "split"` opens the diff pane side by side; anything else
+    /// (or unset) keeps the unified view. `s` still toggles at runtime.
+    pub fn diff_side_by_side(&self) -> bool {
+        toml::from_str::<RawTheme>(&self.text)
+            .ok()
+            .and_then(|r| r.diff_view)
+            .is_some_and(|v| v == "split")
+    }
+
     pub fn active_name(&self, detected_light: Option<bool>) -> ThemeName {
         if let Some(name) = self.name {
             return name;
@@ -914,6 +923,8 @@ struct RawTheme {
     #[serde(default)]
     animations: Option<bool>,
     #[serde(default)]
+    diff_view: Option<String>,
+    #[serde(default)]
     colors: Option<RawColors>,
 }
 
@@ -1161,6 +1172,19 @@ mod tests {
         assert!(!cfg("").animations());
         assert!(!cfg("mode = \"dark\"").animations());
         assert!(cfg("animations = true").animations());
+    }
+
+    #[test]
+    fn diff_view_is_unified_unless_split() {
+        let cfg = |text: &str| ThemeConfig {
+            mode: ThemeMode::Auto,
+            name: None,
+            text: text.to_string(),
+            warning: None,
+        };
+        assert!(!cfg("").diff_side_by_side());
+        assert!(!cfg("diff_view = \"unified\"").diff_side_by_side());
+        assert!(cfg("diff_view = \"split\"").diff_side_by_side());
     }
 
     #[test]

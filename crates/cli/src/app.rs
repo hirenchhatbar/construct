@@ -2189,6 +2189,11 @@ pub struct App {
     /// Results from create/fork/delete work performed outside the render loop.
     pub session_mutation_tx: mpsc::UnboundedSender<SessionMutationResult>,
     pub last_diff: Option<String>,
+    /// Wrapped-row scroll offset into the diff pane, clamped at render like
+    /// `help_scroll_offset`.
+    pub diff_scroll_offset: usize,
+    /// Diff pane shows old/new side by side instead of unified (`s` toggles).
+    pub diff_side_by_side: bool,
     pub should_quit: bool,
     pub connected: bool,
     /// Whether the daemon's remote-control listener is running, and how many
@@ -5884,6 +5889,8 @@ async fn run_with_socket_initial_selection(
         upgrade_status_tx,
         session_mutation_tx,
         last_diff: None,
+        diff_scroll_offset: 0,
+        diff_side_by_side: theme_config.diff_side_by_side(),
         should_quit: false,
         connected: true,
         remote_enabled: false,
@@ -8342,6 +8349,7 @@ impl App {
         }
         self.selection = Selection::Group(id.clone());
         self.project_dashboard.ensure_project(&id);
+        self.project_dashboard.engaged = false;
         self.transcript.clear();
         self.transcript_session = None;
         self.transcript_scroll = u16::MAX;
@@ -8350,9 +8358,12 @@ impl App {
     }
 
     /// True when the project dashboard owns keyboard navigation: a project
-    /// header is selected and the view pane has focus.
+    /// header is selected, the view pane has focus, and the user entered the
+    /// dashboard with Enter.
     pub fn project_dashboard_interactive(&self) -> bool {
-        self.selection.group_id().is_some() && self.focus == PaneFocus::View
+        self.selection.group_id().is_some()
+            && self.focus == PaneFocus::View
+            && self.project_dashboard.engaged
     }
 
     /// Move the project-dashboard member cursor. Returns true when the key
@@ -10365,7 +10376,9 @@ impl App {
     /// Jump the selection to the next (`delta > 0`) or previous project
     /// header or live session in the materialized list, wrapping at the
     /// ends. Operators, "N archived" rows and archived sessions are skipped.
-    async fn step_list_stop(&mut self, delta: i32) {
+    /// `projects_only` stops on project headers alone (spec 0221). Returns
+    /// whether the selection moved.
+    async fn step_list_stop(&mut self, delta: i32, projects_only: bool) -> bool {
         let items = self.list_items();
         let n = items.len();
         let cur = items
@@ -10382,15 +10395,16 @@ impl App {
             })
             .find(|&i| match &items[i] {
                 ListItem::GroupHeader { .. } => true,
-                ListItem::Session { summary, .. } => !summary.archived,
+                ListItem::Session { summary, .. } => !projects_only && !summary.archived,
                 _ => false,
             });
         match next.map(|i| &items[i]) {
             Some(ListItem::GroupHeader { group, .. }) => self.select_group(group.id.clone()),
             Some(ListItem::Session { summary, .. }) => self.select_session(summary.id.clone()),
-            _ => return,
+            _ => return false,
         }
         self.sync_active_window_selection();
+        true
     }
 
     fn is_collapsed_ungrouped_archive_row(item: &ListItem) -> bool {
@@ -11977,6 +11991,21 @@ impl App {
                 }
                 _ => {}
             }
+            return;
+        }
+        // The wheel over the diff pane scrolls the diff, not the PTY it covers.
+        if self.last_diff.is_some()
+            && matches!(ev.kind, MouseEventKind::ScrollUp | MouseEventKind::ScrollDown)
+            && self
+                .layout
+                .view_area
+                .is_some_and(|v| v.contains(ratatui::layout::Position::new(ev.column, ev.row)))
+        {
+            self.diff_scroll_offset = if ev.kind == MouseEventKind::ScrollDown {
+                self.diff_scroll_offset.saturating_add(3)
+            } else {
+                self.diff_scroll_offset.saturating_sub(3)
+            };
             return;
         }
         // The `/configure` dialog (spec 0069) is a topmost modal: a
@@ -13738,6 +13767,37 @@ impl App {
                 return;
             }
         }
+        // The diff pane replaces the session view; Esc dismisses it and the
+        // navigation keys scroll it before they can reach the PTY underneath.
+        // Over-scroll is clamped at render.
+        if self.last_diff.is_some() {
+            if key.code == KeyCode::Char('d') && key.modifiers.is_empty() {
+                self.run_action(KeyAction::OpenDiff).await;
+                return;
+            }
+            if key.code == KeyCode::Char('s') && key.modifiers.is_empty() {
+                self.diff_side_by_side = !self.diff_side_by_side;
+                return;
+            }
+            let off = self.diff_scroll_offset;
+            let next = match key.code {
+                KeyCode::Esc => {
+                    self.last_diff = None;
+                    Some(0)
+                }
+                KeyCode::Up => Some(off.saturating_sub(1)),
+                KeyCode::Down => Some(off.saturating_add(1)),
+                KeyCode::PageUp => Some(off.saturating_sub(10)),
+                KeyCode::PageDown => Some(off.saturating_add(10)),
+                KeyCode::Home => Some(0),
+                KeyCode::End => Some(usize::MAX),
+                _ => None,
+            };
+            if let Some(next) = next {
+                self.diff_scroll_offset = next;
+                return;
+            }
+        }
         // A pinned clip's inline terminal owns keyboard focus while pinned
         // (same tier as the playbook popup itself, checked first so the pinned
         // terminal — not the Playbook markdown editor — receives keystrokes).
@@ -13882,6 +13942,22 @@ impl App {
                         self.chord_label.clear();
                         return;
                     }
+                }
+            }
+            // `C-PageUp` / `C-PageDown` jump between project headers from any
+            // pane, ahead of PTY forwarding (spec 0221). Bare PageUp/PageDown
+            // keep paging. With no project in the list they fall through.
+            if key.modifiers == KeyModifiers::CONTROL
+                && matches!(key.code, KeyCode::PageUp | KeyCode::PageDown)
+            {
+                let delta = if matches!(key.code, KeyCode::PageDown) {
+                    1
+                } else {
+                    -1
+                };
+                if self.step_list_stop(delta, true).await {
+                    self.chord_label.clear();
+                    return;
                 }
             }
             // Bare `Tab`, with the list pane focused, moves keyboard focus
@@ -14122,8 +14198,12 @@ impl App {
                     self.step_selection(-1).await;
                 }
             }
-            NextListStop => self.step_list_stop(1).await,
-            PrevListStop => self.step_list_stop(-1).await,
+            NextListStop => {
+                self.step_list_stop(1, false).await;
+            }
+            PrevListStop => {
+                self.step_list_stop(-1, false).await;
+            }
             Refresh => {
                 self.refresh_sessions().await;
                 self.transcript_session = None;
@@ -14436,6 +14516,11 @@ impl App {
                                 self.set_status("(no diff)".to_string());
                                 self.last_diff = None;
                             } else {
+                                // A refresh keeps its place (clamped at render);
+                                // a fresh open starts at the top.
+                                if self.last_diff.is_none() {
+                                    self.diff_scroll_offset = 0;
+                                }
                                 self.last_diff = Some(r.patch);
                             }
                         }
@@ -14485,14 +14570,15 @@ impl App {
                     self.toggle_archive_section(&section);
                     return;
                 }
-                // Project dashboard: Enter from the list focuses the pane so
-                // the user can move the member cursor; Enter again (view
-                // already focused) opens the highlighted member.
+                // Project dashboard: Enter on a project header engages the
+                // pane so the user can move the member cursor; Enter again
+                // (already engaged) opens the highlighted member.
                 if let Some(project_id) = self.selection.group_id().map(str::to_owned) {
-                    if self.focus == PaneFocus::View {
+                    if self.project_dashboard_interactive() {
                         self.activate_project_dashboard_selection(&project_id);
                         return;
                     }
+                    self.project_dashboard.engaged = true;
                     match self.zoom {
                         ZoomMode::List => self.zoom = ZoomMode::View,
                         ZoomMode::View | ZoomMode::None => {}
@@ -14674,7 +14760,12 @@ impl App {
                 }
             }
             CollapseGroup => {
-                if let Some(section) = self.selection.archive_section().cloned() {
+                if self.project_dashboard_interactive() {
+                    // Left backs out of the dashboard to the session list
+                    // rather than collapsing the project behind it.
+                    self.project_dashboard.engaged = false;
+                    self.focus_pane_by_index(0);
+                } else if let Some(section) = self.selection.archive_section().cloned() {
                     self.set_archive_section_revealed(&section, false);
                 } else if let Some(g) = self.selected_group() {
                     let id = g.id.clone();
@@ -18503,6 +18594,8 @@ mod tests {
             upgrade_status_tx: mpsc::unbounded_channel().0,
             session_mutation_tx: mpsc::unbounded_channel().0,
             last_diff: None,
+            diff_scroll_offset: 0,
+            diff_side_by_side: false,
             should_quit: false,
             connected: true,
             remote_enabled: false,
@@ -27795,6 +27888,43 @@ mod tests {
             app.fleet_panel.is_none(),
             "clicking the pinned tally again must close it, not re-pin it"
         );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn escape_clears_the_diff_pane() {
+        let (mut app, _dir, server) = empty_app().await;
+        app.last_diff = Some("diff --git a/x b/x\n".to_string());
+        app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))
+            .await;
+        assert!(app.last_diff.is_none(), "Esc must close the diff pane");
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn diff_pane_scrolls_by_key_and_clamps_at_render() {
+        let (mut app, _dir, server) = empty_app().await;
+        app.last_diff = Some((0..200).map(|i| format!("+line {i}\n")).collect());
+        app.on_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE))
+            .await;
+        app.on_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE))
+            .await;
+        assert_eq!(app.diff_scroll_offset, 11);
+        app.on_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE))
+            .await;
+        assert_eq!(app.diff_scroll_offset, 10);
+
+        app.on_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE))
+            .await;
+        let _ = rendered(&mut app, 120, 30);
+        assert!(
+            app.diff_scroll_offset < 200,
+            "End must clamp to the last page at render, got {}",
+            app.diff_scroll_offset
+        );
+        app.on_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE))
+            .await;
+        assert_eq!(app.diff_scroll_offset, 0);
         server.abort();
     }
 
@@ -50203,6 +50333,122 @@ mod tests {
         );
         app.run_action(KeyAction::PrevListStop).await;
         assert_eq!(app.selection, Selection::Session("m1".into()));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn arrows_only_drive_project_dashboard_after_enter() {
+        let (mut app, _dir, server) = empty_app().await;
+        let mut sessions = Vec::new();
+        for id in ["s1", "s2"] {
+            let mut member = summary_with_kind(construct_protocol::SessionKind::User);
+            member.id = id.into();
+            member.group_id = Some("project".into());
+            sessions.push(member);
+        }
+        app.sessions = sessions;
+        app.groups = vec![GroupSummary {
+            id: "project".into(),
+            name: "Project".into(),
+            created_at: chrono::Utc::now(),
+            position: 0,
+            collapsed: false,
+            cwd: None,
+        }];
+
+        // Arrowing onto a project with the view focused must not trap the
+        // arrows in the dashboard: Down keeps walking the list.
+        app.focus = PaneFocus::View;
+        app.select_group("project".into());
+        app.run_action(KeyAction::NextSession).await;
+        assert!(matches!(app.selection, Selection::Session(_)));
+
+        // Enter on the header engages the dashboard; Down then moves the
+        // member cursor and leaves the list selection on the project.
+        app.select_group("project".into());
+        app.focus = PaneFocus::List;
+        app.run_action(KeyAction::FocusView).await;
+        assert_eq!(app.focus, PaneFocus::View);
+        app.run_action(KeyAction::NextSession).await;
+        assert_eq!(app.selection, Selection::Group("project".into()));
+        assert_eq!(app.project_dashboard.cursor, 1);
+
+        // Left backs out to the session list without collapsing.
+        app.run_action(KeyAction::CollapseGroup).await;
+        assert_eq!(app.focus, PaneFocus::List);
+        assert_eq!(app.selection, Selection::Group("project".into()));
+        assert!(!app.project_dashboard_interactive());
+        app.run_action(KeyAction::FocusView).await;
+
+        // Enter again opens the highlighted member.
+        app.run_action(KeyAction::FocusView).await;
+        assert!(matches!(app.selection, Selection::Session(_)));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn ctrl_page_keys_jump_between_project_headers_from_any_pane() {
+        let (mut app, _dir, server) = empty_app().await;
+        let mut loose = summary_with_kind(construct_protocol::SessionKind::User);
+        loose.id = "loose".into();
+        let mut m1 = summary_with_kind(construct_protocol::SessionKind::User);
+        m1.id = "m1".into();
+        m1.group_id = Some("p1".into());
+        let mut m2 = summary_with_kind(construct_protocol::SessionKind::User);
+        m2.id = "m2".into();
+        m2.group_id = Some("p2".into());
+        app.sessions = vec![loose, m1, m2];
+        app.groups = ["p1", "p2"]
+            .iter()
+            .enumerate()
+            .map(|(i, id)| GroupSummary {
+                id: (*id).into(),
+                name: id.to_uppercase(),
+                created_at: chrono::Utc::now(),
+                position: i as i64,
+                collapsed: false,
+                cwd: None,
+            })
+            .collect();
+        app.focus = PaneFocus::List;
+        app.select_session("loose".into());
+
+        let page_down = KeyEvent::new(KeyCode::PageDown, KeyModifiers::CONTROL);
+        let page_up = KeyEvent::new(KeyCode::PageUp, KeyModifiers::CONTROL);
+        let mut forward = Vec::new();
+        for _ in 0..3 {
+            app.on_key(page_down).await;
+            forward.push(app.selection.clone());
+        }
+        assert_eq!(
+            forward,
+            vec![
+                Selection::Group("p1".into()),
+                Selection::Group("p2".into()),
+                Selection::Group("p1".into()),
+            ],
+            "C-PageDown skips sessions and wraps"
+        );
+
+        app.select_session("m2".into());
+        app.on_key(page_up).await;
+        assert_eq!(
+            app.selection,
+            Selection::Group("p2".into()),
+            "C-PageUp from a member lands on its own project header"
+        );
+
+        // Same keys from a focused session pane.
+        app.select_session("m1".into());
+        app.focus = PaneFocus::View;
+        app.on_key(page_down).await;
+        assert_eq!(app.selection, Selection::Group("p2".into()));
+
+        // Bare PageDown never jumps.
+        app.focus = PaneFocus::List;
+        app.on_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE))
+            .await;
+        assert_eq!(app.selection, Selection::Group("p2".into()));
         server.abort();
     }
 
