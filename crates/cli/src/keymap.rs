@@ -18,6 +18,10 @@ pub enum KeyAction {
     /// `]]` / `[[` (vim).
     NextListStop,
     PrevListStop,
+    /// Jump the list selection to the next row wearing the attention dot,
+    /// wrapping. Selecting a session clears its dot, so repeating the chord
+    /// walks every session that wants you. Bound `C-x C-a` in both profiles.
+    NextAttention,
     Refresh,
     EnterInsert,
     OpenSendInput,
@@ -432,6 +436,7 @@ fn emacs() -> Keymap {
         // terminals that *do* forward the modifier (iTerm2, WezTerm, etc).
         (Chord(vec![ctrl('x'), ctrl('p')]), MoveSelectedUp),
         (Chord(vec![ctrl('x'), ctrl('n')]), MoveSelectedDown),
+        (Chord(vec![ctrl('x'), ctrl('a')]), NextAttention),
         (Chord(vec![shift_key(KeyCode::Up)]), MoveSelectedUp),
         (Chord(vec![shift_key(KeyCode::Down)]), MoveSelectedDown),
         // Interrupt the running adapter (emacs comint convention)
@@ -515,6 +520,7 @@ fn vim() -> Keymap {
         // terminals that strip the Shift modifier from arrow keys.
         (Chord(vec![ctrl('x'), ctrl('p')]), MoveSelectedUp),
         (Chord(vec![ctrl('x'), ctrl('n')]), MoveSelectedDown),
+        (Chord(vec![ctrl('x'), ctrl('a')]), NextAttention),
         (Chord(vec![shift('K')]), MoveSelectedUp),
         (Chord(vec![shift('J')]), MoveSelectedDown),
         (Chord(vec![shift_key(KeyCode::Up)]), MoveSelectedUp),

@@ -10407,6 +10407,53 @@ impl App {
         true
     }
 
+    /// Jump the selection to the next row wearing the attention dot, wrapping
+    /// past the end. Stops on the same rows the wants-you tally counts, so a
+    /// collapsed project or parent is selected as itself rather than opened.
+    /// Focus stays put: from a focused session view, the view follows the
+    /// selection and the user can answer the session in place.
+    fn select_next_attention(&mut self) {
+        let items = self.list_items();
+        let n = items.len();
+        let cur = items
+            .iter()
+            .position(|it| it.matches(&self.selection))
+            .unwrap_or(n.saturating_sub(1));
+        let next = (1..=n).map(|step| (cur + step) % n).find(|&i| match &items[i] {
+            ListItem::Session {
+                summary,
+                attention_rollup,
+                ..
+            } => {
+                !summary.archived
+                    && summary.native_subagent.is_none()
+                    && (summary.needs_attention || *attention_rollup)
+            }
+            ListItem::GroupHeader {
+                attention_rollup, ..
+            } => *attention_rollup,
+            _ => false,
+        });
+        let id = match next.map(|i| &items[i]) {
+            Some(ListItem::GroupHeader { group, .. }) => {
+                let id = group.id.clone();
+                self.select_group(id.clone());
+                id
+            }
+            Some(ListItem::Session { summary, .. }) => {
+                let id = summary.id.clone();
+                self.select_session(id.clone());
+                id
+            }
+            _ => {
+                self.set_status("no session needs attention".into());
+                return;
+            }
+        };
+        self.list_scroll_target = Some(id);
+        self.sync_active_window_selection();
+    }
+
     fn is_collapsed_ungrouped_archive_row(item: &ListItem) -> bool {
         matches!(
             item,
@@ -14204,6 +14251,7 @@ impl App {
             PrevListStop => {
                 self.step_list_stop(-1, false).await;
             }
+            NextAttention => self.select_next_attention(),
             Refresh => {
                 self.refresh_sessions().await;
                 self.transcript_session = None;
@@ -44120,7 +44168,7 @@ mod tests {
         app.keymap = keymap::default_for(Profile::Vim);
         // Tall enough for the full help text (it grows with the keymap;
         // the modal scrolls on real terminals).
-        let backend = ratatui::backend::TestBackend::new(120, 72);
+        let backend = ratatui::backend::TestBackend::new(120, 76);
         let mut terminal = ratatui::Terminal::new(backend).expect("terminal");
 
         terminal
@@ -50333,6 +50381,58 @@ mod tests {
         );
         app.run_action(KeyAction::PrevListStop).await;
         assert_eq!(app.selection, Selection::Session("m1".into()));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn next_attention_walks_flagged_sessions_and_wraps() {
+        let (mut app, _dir, server) = empty_app().await;
+        let mut sessions = Vec::new();
+        for (position, (id, flagged, archived)) in [
+            ("a", false, false),
+            ("b", true, false),
+            ("c", true, false),
+            ("d", true, true),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut s = summary_with_kind(construct_protocol::SessionKind::User);
+            s.id = id.into();
+            s.position = position as i64;
+            s.needs_attention = flagged;
+            s.archived = archived;
+            sessions.push(s);
+        }
+        app.sessions = sessions;
+        app.select_session("a".into());
+
+        app.run_action(KeyAction::NextAttention).await;
+        assert_eq!(app.selection, Selection::Session("b".into()));
+        app.run_action(KeyAction::NextAttention).await;
+        assert_eq!(
+            app.selection,
+            Selection::Session("c".into()),
+            "visiting b cleared its dot, so the jump moves on; archived d is skipped"
+        );
+        app.run_action(KeyAction::NextAttention).await;
+        assert_eq!(
+            app.selection,
+            Selection::Session("c".into()),
+            "nothing left to visit leaves the selection alone"
+        );
+
+        app.sessions
+            .iter_mut()
+            .find(|s| s.id == "a")
+            .unwrap()
+            .needs_attention = true;
+        app.run_action(KeyAction::NextAttention).await;
+        assert_eq!(
+            app.selection,
+            Selection::Session("a".into()),
+            "the jump wraps past the end of the list"
+        );
         server.abort();
     }
 

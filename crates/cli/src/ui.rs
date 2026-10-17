@@ -14868,6 +14868,7 @@ emacs keymap (default; CONSTRUCT_KEYMAP=vim for vim profile)
     [C-n] / [down]        next session
     [C-p] / [up]          prev session
     [M-n] / [M-p]         next/prev project or session
+    [C-x C-a]             next session that needs attention (wraps)
 
   session actions
     [C-x C-f]             new session
@@ -14943,6 +14944,7 @@ vim keymap (CONSTRUCT_KEYMAP=vim; unset for emacs profile)
     [z] / [C-w z]         zoom: fill the screen with the session view
     [j]/[k]/[down]/[up]   next/prev session
     [}]/[{] []]]/[[[]     next/prev project or session
+    [C-x C-a]             next session that needs attention (wraps)
 
   session actions
     [o] / [n]             new session

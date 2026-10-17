@@ -19850,6 +19850,7 @@ const WEB_KEYMAP = [
   { keys: ["C-x", "p"], action: "toggle-pin" },
   { keys: ["C-x", "C-p"], action: "move-selected-up" },
   { keys: ["C-x", "C-n"], action: "move-selected-down" },
+  { keys: ["C-x", "C-a"], action: "next-attention" },
   { keys: ["C-x", "x"], action: "command-palette" },
   { keys: ["C-x", "["], action: "scroll-page-up" },
   { keys: ["C-x", "]"], action: "scroll-page-down" },
@@ -20333,6 +20334,25 @@ function runKeyAction(action, keys) {
       // The web has no switcher popup yet; the list is the nearest thing.
       toggleListFocus();
       return;
+    case "next-attention": {
+      // The TUI's NextAttention: the next rendered row wearing the attention
+      // dot after the selection, wrapping. Focus stays where it is.
+      const rows = [...sessionListEl.querySelectorAll(".item[data-id]")];
+      const cur = rows.indexOf(sessionListEl.querySelector(".item.active"));
+      // The active row is excluded: its dot may outlive the selection until
+      // the daemon's clear arrives, and landing on it again would stall.
+      const next = rows
+        .slice(cur + 1)
+        .concat(rows.slice(0, Math.max(cur, 0)))
+        .find((row) => row.querySelector(".attention-dot"));
+      if (!next) {
+        showChordEcho("C-x C-a — no session needs attention", true);
+        return;
+      }
+      next.scrollIntoView({ block: "nearest" });
+      selectSession(next.dataset.id, { keepFocus: true });
+      return;
+    }
     case "close-session":
       if (id) openCloseSessionDialog(id);
       return;
