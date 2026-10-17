@@ -289,6 +289,9 @@ fn describe_applied(previous: &Config, next: &Config) -> Vec<String> {
     {
         applied.push("[router]".to_string());
     }
+    if previous.retention != next.retention {
+        applied.push("[retention]".to_string());
+    }
 
     applied
 }

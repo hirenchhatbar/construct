@@ -90,7 +90,8 @@ single reflexive keystroke once a non-destructive option shares the prompt.
 
 ## Non-Goals
 
-- No bulk archive/unarchive, auto-archive policies, or archive retention/expiry.
+- No bulk archive/unarchive. (Auto-archive and archive retention/expiry are now
+  defined by [0223-session-retention-archive-then-delete](0223-session-retention-archive-then-delete.md).)
 - No separate archived storage location or compaction; archived sessions live in
   the same on-disk layout as active ones.
 

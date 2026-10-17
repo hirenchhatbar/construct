@@ -191,6 +191,25 @@ enabled = true
 # The CONSTRUCT_PLAYBOOK_TEMPLATES_DIR env var overrides this.
 # templates_dir = "/path/to/my/playbook-templates"
 
+# ── Session retention ────────────────────────────────────────────────────────
+#
+# Hourly sweep (spec 0223). Finished sessions can be archived after a while,
+# and archived sessions deleted after a further while. Delete is irreversible:
+# transcript, worktree, and metadata are removed. Restarting an archived
+# session un-archives it and resets its clock. Every rule is off by default.
+
+# [retention]
+# Archive Done/Errored sessions idle this many days. Default: unset (never).
+# auto_archive_after_days = 7
+# Delete sessions that stayed archived this many days. Default: unset (never).
+# delete_archived_after_days = 30
+# Skip deleting sessions whose worktree has uncommitted changes. Default: true
+# protect_dirty_worktrees = true
+# Project names the sweep never touches. Default: []
+# exclude_projects = ["my-project"]
+# Log what would be archived/deleted without doing it. Default: false
+# dry_run = false
+
 # ── Next-prompt suggestions ──────────────────────────────────────────────────
 #
 # When a user session's turn ends, the daemon generates a hand of suggested
@@ -588,6 +607,45 @@ pub struct Config {
     /// `[smith.models.*]` profiles (spec 0030).
     #[serde(default)]
     pub smith: SmithConfig,
+    #[serde(default)]
+    pub retention: RetentionConfig,
+}
+
+/// `[retention]` — automatic archive/delete of old sessions (spec 0223).
+/// Every rule is off until configured.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct RetentionConfig {
+    /// Archive Done/Errored sessions idle this many days. `None` = never.
+    #[serde(default)]
+    pub auto_archive_after_days: Option<u64>,
+    /// Delete sessions archived this many days. `None` = never.
+    #[serde(default)]
+    pub delete_archived_after_days: Option<u64>,
+    /// Never delete a session whose worktree has uncommitted changes.
+    #[serde(default = "default_protect_dirty_worktrees")]
+    pub protect_dirty_worktrees: bool,
+    /// Project (group) names the sweep never touches.
+    #[serde(default)]
+    pub exclude_projects: Vec<String>,
+    /// Log what the sweep would do without doing it.
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+fn default_protect_dirty_worktrees() -> bool {
+    true
+}
+
+impl Default for RetentionConfig {
+    fn default() -> Self {
+        Self {
+            auto_archive_after_days: None,
+            delete_archived_after_days: None,
+            protect_dirty_worktrees: default_protect_dirty_worktrees(),
+            exclude_projects: Vec::new(),
+            dry_run: false,
+        }
+    }
 }
 
 /// Next-prompt suggestion generation (spec 0109).

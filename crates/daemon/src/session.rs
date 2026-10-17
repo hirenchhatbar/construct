@@ -35,6 +35,7 @@ mod lifecycle;
 mod playbook_run;
 pub mod scan;
 mod pty;
+mod retention;
 mod usage_probe;
 mod widgets;
 
@@ -5431,6 +5432,10 @@ impl SessionManager {
         // the adapter's eventual Closed event races in (spec 0042).
         self.note_session_state_for_playbook_run(id, snapshot.state);
         let _ = self.storage.save_summary(&snapshot);
+        // Starts the retention clock (spec 0223); re-archiving restarts it.
+        let _ = self
+            .storage
+            .set_archived_at_ms(id, chrono::Utc::now().timestamp_millis());
         let _ = self
             .broadcast
             .send(BroadcastMsg::State(StateNotificationPayload {

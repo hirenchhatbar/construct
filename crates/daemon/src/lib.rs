@@ -245,6 +245,7 @@ pub async fn run(socket_override: Option<PathBuf>) -> Result<()> {
         });
     }
     manager.spawn_widget_watcher();
+    manager.spawn_retention_sweep();
     // Public exposure is a capability layered over channel-owned local
     // endpoints. Its supervisor starts empty: only an explicit publish RPC
     // creates a route, and daemon restart intentionally withdraws all routes.

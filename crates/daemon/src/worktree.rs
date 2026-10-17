@@ -87,6 +87,25 @@ pub async fn remove_worktree(worktree_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// True if the worktree has uncommitted (or untracked) changes. A git failure
+/// also reads as dirty, so callers guarding destruction err on keeping.
+pub async fn has_uncommitted_changes(work_dir: &Path) -> bool {
+    if !work_dir.exists() {
+        return false;
+    }
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(work_dir)
+        .arg("status")
+        .arg("--porcelain")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .await;
+    !matches!(out, Ok(o) if o.status.success() && o.stdout.is_empty())
+}
+
 /// `git diff HEAD` against the worktree, returning the patch as a string.
 pub async fn diff_worktree(work_dir: &Path) -> Result<String> {
     let out = Command::new("git")
