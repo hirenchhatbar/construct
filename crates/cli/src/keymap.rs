@@ -7,6 +7,7 @@
 //! changing it there is the divergence that spec exists to prevent.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyAction {
@@ -211,6 +212,88 @@ pub enum KeyAction {
     TutorialNudge,
 }
 
+impl KeyAction {
+    /// Short description for the pending-chord hint panel (spec 0224). The
+    /// web UI's chord table carries the same wording for its `C-x` chords.
+    pub fn label(self) -> &'static str {
+        use KeyAction::*;
+        match self {
+            Quit => "quit",
+            NextSession => "next session",
+            PrevSession => "prev session",
+            NextListStop => "next project/session",
+            PrevListStop => "prev project/session",
+            NextAttention => "next needing attention",
+            Refresh => "refresh",
+            EnterInsert => "insert mode",
+            OpenSendInput => "send input",
+            OpenNewSession => "new session",
+            OpenDeleteConfirm => "delete session",
+            Unarchive => "unarchive",
+            OpenRename => "rename",
+            CopySelectedId => "copy session id",
+            OpenFork => "fork",
+            OpenMerge => "merge",
+            ToggleZoom => "zoom",
+            OpenPlaybook => "playbook",
+            SavePlaybook => "save playbook",
+            UndoPlaybook => "undo playbook",
+            RunPlaybook => "run playbook",
+            TogglePlaybookTerminalFocus => "playbook ⇄ terminal",
+            OpenDiff => "diff",
+            Interrupt => "interrupt",
+            OpenCommandPalette => "command palette",
+            OpenSwitchSession => "switch session",
+            SplitWindowBelow => "split below",
+            SplitWindowRight => "split right",
+            DeleteWindow => "close window",
+            DeleteOtherWindows => "close other windows",
+            EnlargeWindow => "taller",
+            EnlargeWindowHorizontally => "wider",
+            ShrinkWindowHorizontally => "narrower",
+            SwitchFocus => "other window",
+            FocusList => "list ⇄ split view",
+            FocusWindowUp => "focus up",
+            FocusWindowDown => "focus down",
+            FocusWindowLeft => "focus left",
+            FocusWindowRight => "focus right",
+            FocusPaneOrdinal(0) => "focus session list",
+            FocusPaneOrdinal(_) => "focus numbered pane",
+            FocusView => "focus view",
+            ToggleView => "chat ⇄ terminal",
+            ExpandGroup => "expand",
+            CollapseGroup => "collapse",
+            MoveSelectedUp => "move session up",
+            MoveSelectedDown => "move session down",
+            ScrollUp => "scroll up",
+            ScrollDown => "scroll down",
+            ScrollPageUp => "page up",
+            ScrollPageDown => "page down",
+            ScrollHalfPageUp => "half page up",
+            ScrollHalfPageDown => "half page down",
+            ScrollTop => "scroll to top",
+            ScrollBottom => "scroll to bottom",
+            ToggleHelp => "help",
+            ToggleAutomode => "approval mode",
+            ToggleMouseCapture => "mouse capture",
+            PasteLocalClipboard => "paste local clipboard",
+            CycleTheme => "theme",
+            ToggleBorder => "pane borders",
+            OpenRemoteControl => "remote control",
+            OpenConfigure => "configure",
+            OpenRestartDaemonConfirm => "restart daemon",
+            OpenConfigRestartConfirm => "restart for config",
+            OpenUpgradeConfirm => "upgrade",
+            OpenSuggestions => "suggestions",
+            StartTutorial => "tour",
+            TutorialNextStep => "tour: next",
+            TutorialPrevStep => "tour: back",
+            TutorialEndTour => "tour: end",
+            TutorialNudge => "tour",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Profile {
     Emacs,
@@ -262,12 +345,43 @@ impl Keymap {
         }
         labels
     }
+
+    /// The keys that can follow the half-typed `pending` chord, in table
+    /// order, each with the action it completes — `None` when it opens a
+    /// longer chord instead. Shifted char twins are listed once, as in
+    /// `labels_for`.
+    pub fn continuations(&self, pending: &[KeyEvent]) -> Vec<(String, Option<KeyAction>)> {
+        let mut out: Vec<(String, Option<KeyAction>)> = Vec::new();
+        for (chord, action) in &self.bindings {
+            if chord.0.len() <= pending.len() || !chord.0.starts_with(pending) {
+                continue;
+            }
+            let mut next = chord.0[pending.len()];
+            if matches!(next.code, KeyCode::Char(_)) {
+                next.modifiers.remove(KeyModifiers::SHIFT);
+            }
+            let label = format_key(&next);
+            if out.iter().any(|(l, _)| *l == label) {
+                continue;
+            }
+            let completes = chord.0.len() == pending.len() + 1;
+            out.push((label, completes.then_some(*action)));
+        }
+        out
+    }
 }
 
 #[derive(Default)]
 pub struct ChordState {
     pending: Vec<KeyEvent>,
+    /// When the chord last grew while its hints were still hidden.
+    idle_since: Option<Instant>,
+    hints_shown: bool,
 }
+
+/// How long a chord must sit half-typed before its hint panel appears
+/// (spec 0224): long enough that a practiced chord never flashes it.
+pub const CHORD_HINT_DELAY: Duration = Duration::from_millis(1000);
 
 #[derive(Debug, Clone)]
 pub enum KeymapResult {
@@ -279,6 +393,10 @@ pub enum KeymapResult {
 impl ChordState {
     pub fn is_empty(&self) -> bool {
         self.pending.is_empty()
+    }
+
+    pub fn pending(&self) -> &[KeyEvent] {
+        &self.pending
     }
 
     pub fn handle(&mut self, ev: KeyEvent, km: &Keymap) -> KeymapResult {
@@ -302,19 +420,44 @@ impl ChordState {
             }
         }
         if let Some(a) = exact {
-            self.pending.clear();
+            self.reset();
             return KeymapResult::Action(a);
         }
         if has_prefix {
             self.pending = probe;
+            // Once up, the panel follows the chord deeper without a new wait.
+            if !self.hints_shown {
+                self.idle_since = Some(Instant::now());
+            }
             return KeymapResult::Pending(self.label());
         }
-        self.pending.clear();
+        self.reset();
         KeymapResult::Unhandled
     }
 
     pub fn reset(&mut self) {
         self.pending.clear();
+        self.idle_since = None;
+        self.hints_shown = false;
+    }
+
+    /// Show the hint panel once the chord has idled past
+    /// `CHORD_HINT_DELAY`. True only on the call that reveals it, so the
+    /// caller repaints exactly once.
+    pub fn reveal_hints(&mut self) -> bool {
+        if self
+            .idle_since
+            .is_some_and(|t| t.elapsed() >= CHORD_HINT_DELAY)
+        {
+            self.idle_since = None;
+            self.hints_shown = true;
+            return true;
+        }
+        false
+    }
+
+    pub fn hints_shown(&self) -> bool {
+        self.hints_shown
     }
 
     pub fn label(&self) -> String {
@@ -1116,5 +1259,21 @@ mod tests {
         assert_action(&km, vec![ctrl('w'), ch('1')], KeyAction::FocusPaneOrdinal(1));
         assert_action(&km, vec![ctrl('w'), ch('5')], KeyAction::FocusPaneOrdinal(5));
         assert_action(&km, vec![ctrl('w'), ch('9')], KeyAction::FocusPaneOrdinal(9));
+    }
+
+    #[test]
+    fn continuations_list_each_next_key_once() {
+        let km = default_for(Profile::Emacs);
+        let next = km.continuations(&[ctrl('x')]);
+        assert!(next.contains(&("C-f".to_string(), Some(KeyAction::OpenNewSession))));
+        // `C-x }` and its shifted twin are one key to the user.
+        assert_eq!(next.iter().filter(|(k, _)| k == "}").count(), 1);
+        // The panel waits out `CHORD_HINT_DELAY` before it shows.
+        let mut state = ChordState::default();
+        state.handle(ctrl('x'), &km);
+        assert!(!state.reveal_hints() && !state.hints_shown());
+        // A deeper prefix shows as `None` (opens a longer chord).
+        let first = default_for(Profile::Vim).continuations(&[]);
+        assert!(first.contains(&("C-w".to_string(), None)));
     }
 }

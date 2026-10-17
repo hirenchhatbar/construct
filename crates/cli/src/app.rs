@@ -7108,7 +7108,7 @@ async fn run_loop(
                 }
             }
             _ = tick.tick() => {
-                let mut tick_dirtied_view = false;
+                let mut tick_dirtied_view = app.chord_state.reveal_hints();
                 if let Some((_, at)) = &app.status {
                     if at.elapsed() > Duration::from_secs(5) {
                         app.status = None;

@@ -792,6 +792,17 @@
   }
   .chord-echo[hidden] { display: none; }
   .chord-echo.is-notice { color: var(--fg-dim); }
+  .chord-hints {
+    display: grid;
+    grid-template-columns: repeat(3, auto);
+    gap: 2px 20px;
+    margin-top: 6px;
+    max-width: 90vw;
+  }
+  .chord-hint { display: flex; gap: 8px; }
+  .chord-hint-key { color: var(--accent); min-width: 3ch; }
+  .chord-hint.is-unsupported { color: var(--fg-dim); }
+  .chord-hint.is-unsupported .chord-hint-key { color: inherit; }
   /* Drag-drop attach affordance: covers the session view while a file
      drag hovers over it. pointer-events stays off so the underlying
      drag events keep firing on .view itself. */
@@ -19777,9 +19788,11 @@ function initPullToRefresh() {
 
 const CHORD_TIMEOUT_MS = 3000;
 const CHORD_ECHO_MS = 1600;
+// Matches the TUI's `CHORD_HINT_DELAY` (spec 0224).
+const CHORD_HINT_DELAY_MS = 1000;
 const chordEchoEl = $("chordEcho");
 
-const chordState = { pending: [], timer: null, echoTimer: null };
+const chordState = { pending: [], timer: null, echoTimer: null, hintTimer: null, hintsShown: false };
 
 /**
  * Normalize a KeyboardEvent to the TUI's chord vocabulary.
@@ -19817,48 +19830,49 @@ function keyToken(ev) {
 
 // Chord table. Mirrors the emacs profile's `C-x` bindings one-for-one; the
 // spelling is the contract, so this list should be diffed against the TUI's
-// keymap whenever either side changes.
+// keymap whenever either side changes. `label` is the pending-chord hint
+// (spec 0224), worded like the TUI's `KeyAction::label`.
 const WEB_KEYMAP = [
-  { keys: ["C-x", "C-c"], action: "quit" },
-  { keys: ["C-x", "o"], action: "switch-focus" },
-  { keys: ["C-x", "Tab"], action: "focus-list" },
-  { keys: ["C-x", "Up"], action: "focus-window-up" },
-  { keys: ["C-x", "Down"], action: "focus-window-down" },
-  { keys: ["C-x", "Left"], action: "focus-window-left" },
-  { keys: ["C-x", "Right"], action: "focus-window-right" },
-  { keys: ["C-x", "2"], action: "split-below" },
-  { keys: ["C-x", "3"], action: "split-right" },
-  { keys: ["C-x", "0"], action: "close-pane" },
-  { keys: ["C-x", "1"], action: "close-other-panes" },
-  { keys: ["C-x", "^"], action: "enlarge-window" },
-  { keys: ["C-x", "}"], action: "enlarge-window-horizontally" },
-  { keys: ["C-x", "{"], action: "shrink-window-horizontally" },
-  { keys: ["C-x", "t"], action: "toggle-view" },
-  { keys: ["C-x", "z"], action: "toggle-zoom" },
-  { keys: ["C-x", "C-f"], action: "new-session" },
-  { keys: ["C-x", "b"], action: "switch-session" },
-  { keys: ["C-x", "k"], action: "close-session" },
-  { keys: ["C-x", "Space"], action: "open-playbook" },
-  { keys: ["C-x", "C-s"], action: "save-playbook" },
-  { keys: ["C-x", "u"], action: "undo-playbook" },
-  { keys: ["C-x", "C-r"], action: "run-playbook" },
-  { keys: ["C-x", "C-o"], action: "toggle-playbook-terminal-focus" },
-  { keys: ["C-x", "d"], action: "open-diff" },
-  { keys: ["C-x", "i"], action: "send-input" },
-  { keys: ["C-x", "r"], action: "rename" },
-  { keys: ["C-x", "f"], action: "fork" },
-  { keys: ["C-x", "p"], action: "toggle-pin" },
-  { keys: ["C-x", "C-p"], action: "move-selected-up" },
-  { keys: ["C-x", "C-n"], action: "move-selected-down" },
-  { keys: ["C-x", "C-a"], action: "next-attention" },
-  { keys: ["C-x", "x"], action: "command-palette" },
-  { keys: ["C-x", "["], action: "scroll-page-up" },
-  { keys: ["C-x", "]"], action: "scroll-page-down" },
-  { keys: ["C-x", "A"], action: "toggle-automode" },
-  { keys: ["C-x", "U"], action: "unarchive" },
-  { keys: ["C-x", "c"], action: "toggle-mouse-capture" },
-  { keys: ["C-x", "v"], action: "paste-local-clipboard" },
-  { keys: ["C-x", "."], action: "open-suggestions" },
+  { keys: ["C-x", "C-c"], action: "quit", label: "quit" },
+  { keys: ["C-x", "o"], action: "switch-focus", label: "other window" },
+  { keys: ["C-x", "Tab"], action: "focus-list", label: "list ⇄ split view" },
+  { keys: ["C-x", "Up"], action: "focus-window-up", label: "focus up" },
+  { keys: ["C-x", "Down"], action: "focus-window-down", label: "focus down" },
+  { keys: ["C-x", "Left"], action: "focus-window-left", label: "focus left" },
+  { keys: ["C-x", "Right"], action: "focus-window-right", label: "focus right" },
+  { keys: ["C-x", "2"], action: "split-below", label: "split below" },
+  { keys: ["C-x", "3"], action: "split-right", label: "split right" },
+  { keys: ["C-x", "0"], action: "close-pane", label: "close window" },
+  { keys: ["C-x", "1"], action: "close-other-panes", label: "close other windows" },
+  { keys: ["C-x", "^"], action: "enlarge-window", label: "taller" },
+  { keys: ["C-x", "}"], action: "enlarge-window-horizontally", label: "wider" },
+  { keys: ["C-x", "{"], action: "shrink-window-horizontally", label: "narrower" },
+  { keys: ["C-x", "t"], action: "toggle-view", label: "chat ⇄ terminal" },
+  { keys: ["C-x", "z"], action: "toggle-zoom", label: "zoom" },
+  { keys: ["C-x", "C-f"], action: "new-session", label: "new session" },
+  { keys: ["C-x", "b"], action: "switch-session", label: "switch session" },
+  { keys: ["C-x", "k"], action: "close-session", label: "delete session" },
+  { keys: ["C-x", "Space"], action: "open-playbook", label: "playbook" },
+  { keys: ["C-x", "C-s"], action: "save-playbook", label: "save playbook" },
+  { keys: ["C-x", "u"], action: "undo-playbook", label: "undo playbook" },
+  { keys: ["C-x", "C-r"], action: "run-playbook", label: "run playbook" },
+  { keys: ["C-x", "C-o"], action: "toggle-playbook-terminal-focus", label: "playbook ⇄ terminal" },
+  { keys: ["C-x", "d"], action: "open-diff", label: "diff" },
+  { keys: ["C-x", "i"], action: "send-input", label: "send input" },
+  { keys: ["C-x", "r"], action: "rename", label: "rename" },
+  { keys: ["C-x", "f"], action: "fork", label: "fork" },
+  { keys: ["C-x", "p"], action: "toggle-pin", label: "toggle pin" },
+  { keys: ["C-x", "C-p"], action: "move-selected-up", label: "move session up" },
+  { keys: ["C-x", "C-n"], action: "move-selected-down", label: "move session down" },
+  { keys: ["C-x", "C-a"], action: "next-attention", label: "next needing attention" },
+  { keys: ["C-x", "x"], action: "command-palette", label: "command palette" },
+  { keys: ["C-x", "["], action: "scroll-page-up", label: "page up" },
+  { keys: ["C-x", "]"], action: "scroll-page-down", label: "page down" },
+  { keys: ["C-x", "A"], action: "toggle-automode", label: "approval mode" },
+  { keys: ["C-x", "U"], action: "unarchive", label: "unarchive" },
+  { keys: ["C-x", "c"], action: "toggle-mouse-capture", label: "mouse capture" },
+  { keys: ["C-x", "v"], action: "paste-local-clipboard", label: "paste local clipboard" },
+  { keys: ["C-x", "."], action: "open-suggestions", label: "suggestions" },
 ];
 
 /** Chords whose TUI action has no web surface, and why. Answering is better
@@ -19888,6 +19902,40 @@ function showChordEcho(text, isNotice) {
   }
 }
 
+/**
+ * Pending-chord echo plus every key that can follow it (spec 0224), so a
+ * half-typed `C-x` teaches its own continuations. Chords with no web surface
+ * stay listed, dimmed: the binding exists, it just answers with a notice.
+ */
+function showChordHints(pending) {
+  if (!chordEchoEl) return;
+  const head = document.createElement("div");
+  head.textContent = chordLabel(pending) + " -";
+  const grid = document.createElement("div");
+  grid.className = "chord-hints";
+  const seen = new Set();
+  for (const binding of WEB_KEYMAP) {
+    if (binding.keys.length <= pending.length) continue;
+    if (!pending.every((k, i) => binding.keys[i] === k)) continue;
+    const key = binding.keys[pending.length];
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const row = document.createElement("div");
+    row.className = UNSUPPORTED_ACTIONS[binding.action] ? "chord-hint is-unsupported" : "chord-hint";
+    const keyEl = document.createElement("span");
+    keyEl.className = "chord-hint-key";
+    keyEl.textContent = key;
+    const labelEl = document.createElement("span");
+    labelEl.textContent = binding.keys.length === pending.length + 1 ? binding.label : "…";
+    row.append(keyEl, labelEl);
+    grid.append(row);
+  }
+  chordEchoEl.replaceChildren(head, grid);
+  chordEchoEl.classList.remove("is-notice");
+  chordEchoEl.hidden = false;
+  clearTimeout(chordState.echoTimer);
+}
+
 function hideChordEcho() {
   if (chordEchoEl) chordEchoEl.hidden = true;
 }
@@ -19895,6 +19943,8 @@ function hideChordEcho() {
 function resetChord() {
   chordState.pending = [];
   clearTimeout(chordState.timer);
+  clearTimeout(chordState.hintTimer);
+  chordState.hintsShown = false;
   hideChordEcho();
 }
 
@@ -19995,9 +20045,22 @@ function handleChordKey(ev) {
   }
   if (hasPrefix) {
     chordState.pending = probe;
-    showChordEcho(chordLabel(probe) + " -", false);
     clearTimeout(chordState.timer);
+    // Once up, the hints follow the chord deeper without a new wait.
+    if (chordState.hintsShown) {
+      showChordHints(probe);
+      return true;
+    }
+    showChordEcho(chordLabel(probe) + " -", false);
     chordState.timer = setTimeout(resetChord, CHORD_TIMEOUT_MS);
+    clearTimeout(chordState.hintTimer);
+    chordState.hintTimer = setTimeout(() => {
+      // While the hints are up the chord waits for a key or Escape instead
+      // of timing out under someone still reading them.
+      clearTimeout(chordState.timer);
+      chordState.hintsShown = true;
+      showChordHints(chordState.pending);
+    }, CHORD_HINT_DELAY_MS);
     return true;
   }
   // A prefix followed by an unbound key is still consumed: the TUI swallows

@@ -555,10 +555,93 @@ fn finish_frame(f: &mut Frame, app: &mut App) {
     // already up), so render order between them doesn't matter.
     render_session_picker(f, app);
     render_configure_popup(f, app);
+    render_chord_hints(f, app);
     capture_frame_text(f, app);
     render_hovered_url(f, app);
     render_text_selection(f, app);
     paint_default_backgrounds(f, app.theme.background);
+}
+
+/// Which-key panel (spec 0224): once a chord idles half-typed, every key
+/// that can follow it floats over the bottom of the screen, column-major.
+/// Floats rather than growing the footer so a `C-x` never shifts the layout.
+fn render_chord_hints(f: &mut Frame, app: &App) {
+    let pending = app.chord_state.pending();
+    if pending.is_empty() || !app.chord_state.hints_shown() {
+        return;
+    }
+    let mut entries: Vec<(String, String)> = app
+        .keymap
+        .continuations(pending)
+        .into_iter()
+        .map(|(key, action)| {
+            let label = action.map_or("…", KeyAction::label);
+            (format!("[{key}]"), label.to_string())
+        })
+        .collect();
+    if entries.is_empty() {
+        return;
+    }
+    let area = f.area();
+    // Block borders (2) + one cell of padding each side.
+    let inner_w = area.width.saturating_sub(4) as usize;
+    let col_w = entries
+        .iter()
+        .map(|(k, l)| {
+            UnicodeWidthStr::width(k.as_str()) + 1 + UnicodeWidthStr::width(l.as_str()) + 3
+        })
+        .max()
+        .unwrap_or(1);
+    let cols = (inner_w / col_w).max(1);
+    let max_rows = (area.height / 2).saturating_sub(2).max(1) as usize;
+    let rows = entries.len().div_ceil(cols).min(max_rows);
+    let shown = rows * cols;
+    if entries.len() > shown {
+        let more = format!("+{} more", entries.len() - (shown - 1));
+        entries.truncate(shown - 1);
+        entries.push(("…".to_string(), more));
+    }
+    let base = Style::default().fg(app.theme.text);
+    let key_style = key_hint_style(&app.theme, base);
+    let lines: Vec<Line> = (0..rows)
+        .map(|r| {
+            let mut spans = Vec::new();
+            for c in 0..cols {
+                let Some((key, label)) = entries.get(c * rows + r) else {
+                    break;
+                };
+                let used = UnicodeWidthStr::width(key.as_str())
+                    + 1
+                    + UnicodeWidthStr::width(label.as_str());
+                spans.push(Span::styled(key.clone(), key_style));
+                spans.push(Span::styled(
+                    format!(" {label}{}", " ".repeat(col_w.saturating_sub(used))),
+                    base,
+                ));
+            }
+            Line::from(spans)
+        })
+        .collect();
+    let height = (rows as u16 + 2).min(area.height);
+    let popup = Rect {
+        x: area.x,
+        y: area.y + area.height - height,
+        width: area.width,
+        height,
+    };
+    f.render_widget(Clear, popup);
+    // Spans built by hand: a pending `[` would trip `key_hint_spans`.
+    let title = Line::from(vec![
+        Span::styled(" ", base),
+        Span::styled(format!("[{}]", app.chord_state.label()), key_style),
+        Span::styled(" … ", base),
+    ]);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(app.theme.border_focused))
+        .padding(ratatui::widgets::Padding::horizontal(1))
+        .title(title);
+    f.render_widget(Paragraph::new(lines).block(block).style(base), popup);
 }
 
 /// Contextual help for whatever the operator editor's cursor is on. Definition
