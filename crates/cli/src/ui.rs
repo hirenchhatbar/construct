@@ -13506,6 +13506,29 @@ fn render_modeline(f: &mut Frame, area: Rect, app: &mut App) {
         }
         None => modeline_before_context_gauge,
     };
+    // Paint the vim mode as a badge, borrowing one pad space each side so
+    // the modeline width (and the hit offsets derived from it) is unchanged.
+    let vim_badge = format!(" {} ", app.vim_mode.label());
+    let left_group = match left_group
+        .split_once(&vim_badge)
+        .filter(|_| app.profile == Profile::Vim)
+    {
+        Some((prefix, rest)) => {
+            spans.push(Span::raw(prefix.to_string()));
+            spans.push(Span::styled(
+                vim_badge.clone(),
+                Style::default()
+                    .fg(app.theme.modeline_bg)
+                    .bg(match app.vim_mode {
+                        crate::app::VimMode::Insert => app.theme.success,
+                        crate::app::VimMode::Normal => app.theme.info,
+                    })
+                    .add_modifier(Modifier::BOLD),
+            ));
+            rest.to_string()
+        }
+        None => left_group,
+    };
     match left_group
         .strip_suffix(&model_text)
         .filter(|_| model_hovered)

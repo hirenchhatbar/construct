@@ -7020,6 +7020,12 @@ async fn run_loop(
                             app.select_created_session(id);
                             app.sync_active_window_selection();
                             app.focus = PaneFocus::View;
+                            // Not `set_vim_insert_if_captured`: the session may
+                            // not be listed yet. Key routing still waits for
+                            // the PTY to be captured.
+                            if app.profile == Profile::Vim {
+                                app.vim_mode = VimMode::Insert;
+                            }
                         }
                         SessionMutationResult::TurnEntriesLoaded { session_id, entries } => {
                             app.apply_turn_entries_loaded(&session_id, entries);
@@ -7047,6 +7053,9 @@ async fn run_loop(
                             app.select_session(id);
                             app.sync_active_window_selection();
                             app.focus = PaneFocus::View;
+                            if app.profile == Profile::Vim {
+                                app.vim_mode = VimMode::Insert;
+                            }
                         }
                         SessionMutationResult::Deleted { session_id } => {
                             app.set_status(format!("deleted {}", short_id(&session_id)));
