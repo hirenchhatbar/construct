@@ -8690,10 +8690,10 @@ async function handleRowAction(action, sessionId) {
     if (action === "restart") {
       await rpc("session.restart", { session_id: sessionId });
     } else if (action === "archive") {
-      // Archive is soft and reversible (unarchive = session.restart), so
-      // no confirm sheet: the label flips per the session's archived bit.
+      // Archive is soft and reversible (unarchive relists without a
+      // restart), so no confirm sheet: the label flips per the archived bit.
       const s = state.sessions.find((x) => x.id === sessionId);
-      if (s && s.archived) await rpc("session.restart", { session_id: sessionId });
+      if (s && s.archived) await rpc("session.unarchive", { session_id: sessionId });
       else await rpc("session.archive", { session_id: sessionId });
     } else if (action === "merge") {
       await mergeForkSession(sessionId);
@@ -19855,6 +19855,7 @@ const WEB_KEYMAP = [
   { keys: ["C-x", "["], action: "scroll-page-up" },
   { keys: ["C-x", "]"], action: "scroll-page-down" },
   { keys: ["C-x", "A"], action: "toggle-automode" },
+  { keys: ["C-x", "U"], action: "unarchive" },
   { keys: ["C-x", "c"], action: "toggle-mouse-capture" },
   { keys: ["C-x", "v"], action: "paste-local-clipboard" },
   { keys: ["C-x", "."], action: "open-suggestions" },
@@ -20401,6 +20402,13 @@ function runKeyAction(action, keys) {
       return;
     case "toggle-pin":
       if (id) handleRowAction("pin", id);
+      return;
+    case "unarchive":
+      if (id && state.sessions.find((x) => x.id === id)?.archived) {
+        handleRowAction("archive", id);
+      } else {
+        showChordEcho("C-x U — selected session is not archived", true);
+      }
       return;
     case "move-selected-up":
       if (id) moveSessionSteps(id, -1);

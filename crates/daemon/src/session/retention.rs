@@ -35,7 +35,13 @@ fn verdict(
             _ => Verdict::Keep,
         }
     } else {
-        let idle_since = s.last_event_at.unwrap_or(s.created_at).timestamp_millis();
+        // An unarchive re-stamps `archived_at`, so a session just restored to
+        // the list isn't idle since its last event and re-archived at once.
+        let idle_since = s
+            .last_event_at
+            .unwrap_or(s.created_at)
+            .timestamp_millis()
+            .max(archived_at_ms.unwrap_or(i64::MIN));
         match cfg.auto_archive_after_days {
             Some(days) if s.state.is_terminal() && older_than(idle_since, days) => Verdict::Archive,
             _ => Verdict::Keep,
@@ -163,6 +169,16 @@ mod tests {
         );
         assert_eq!(
             verdict(&cfg, &summary("errored", false, last), None, t0 + 6 * day),
+            Verdict::Keep
+        );
+        // Unarchived recently: the re-stamp, not the last event, starts idle.
+        assert_eq!(
+            verdict(
+                &cfg,
+                &summary("done", false, last),
+                Some(t0 + 5 * day),
+                t0 + 7 * day
+            ),
             Verdict::Keep
         );
         // Never archive a session that is not finished.

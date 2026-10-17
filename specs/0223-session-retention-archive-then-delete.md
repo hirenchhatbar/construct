@@ -11,6 +11,7 @@ Retention is a two-stage, opt-in policy configured in `[retention]`:
 
 - **Auto-archive.** A finished session (Done or Errored) whose last activity is older than `auto_archive_after_days` is archived through the ordinary archive operation. Sessions that are running, paused, pending, or awaiting input are never auto-archived.
 - **Delete after archive.** A session that has stayed archived longer than `delete_archived_after_days` is deleted through the ordinary delete operation. Archive is the grace period: restarting the session un-archives it and takes it out of the sweep, and archiving it again restarts its clock.
+- **Unarchive restarts the idle clock.** A session brought back to the list without a restart is still finished, so its auto-archive window counts from the unarchive, not its last activity; otherwise the next sweep would archive it again at once.
 - **The clock is when the session was archived**, recorded at archive time. A session archived before this record existed starts its clock the first time the sweep sees it, so turning retention on never deletes anything immediately.
 - **Every rule is off by default.** Unset windows mean "never". Upgrading never removes data.
 - **Uncommitted work is protected by default.** With `protect_dirty_worktrees` (default on), a session whose worktree has uncommitted or untracked changes is kept and logged instead of deleted. Committed work is not at risk: deleting a session removes its worktree but not its branch.

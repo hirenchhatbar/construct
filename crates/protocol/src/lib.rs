@@ -1296,8 +1296,12 @@ pub mod ipc_method {
     pub const SESSION_DELETE: &str = "session.delete";
     /// Terminate a session's adapter and mark it archived: it keeps its
     /// transcript/worktree but is hidden from the list by default and is
-    /// not auto-resumed on daemon startup. Reversed by `SESSION_RESTART`.
+    /// not auto-resumed on daemon startup. Reversed by `SESSION_UNARCHIVE`
+    /// (list only) or `SESSION_RESTART` (list + adapter).
     pub const SESSION_ARCHIVE: &str = "session.archive";
+    /// Clear a session's archived flag without respawning its adapter: it
+    /// returns to the active list, still stopped, ready for a later restart.
+    pub const SESSION_UNARCHIVE: &str = "session.unarchive";
     pub const SESSION_MERGE: &str = "session.merge";
     pub const SESSION_WIDGET_DELETE: &str = "session.widget.delete";
     /// Respawn a session's adapter — typically used to bring a `Done`

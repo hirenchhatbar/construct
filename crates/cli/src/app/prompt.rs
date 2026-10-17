@@ -813,8 +813,11 @@ impl App {
                     self.set_status("unarchive cancelled".to_string());
                     return;
                 }
-                match self.client.restart(&session_id).await {
-                    Ok(()) => self.set_status(format!("unarchived {}", short_id(&session_id))),
+                match self.client.unarchive(&session_id).await {
+                    Ok(()) => self.set_status(format!(
+                        "unarchived {} — [RET] restarts it",
+                        short_id(&session_id)
+                    )),
                     Err(e) => self.set_status(format!("unarchive failed: {e}")),
                 }
             }

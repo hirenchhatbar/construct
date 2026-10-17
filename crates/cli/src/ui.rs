@@ -13259,8 +13259,8 @@ fn render_modeline(f: &mut Frame, area: Rect, app: &mut App) {
         .unwrap_or_else(|| app.status.as_ref().map(|(m, _)| m.as_str()).unwrap_or(""));
     // Empty/welcome-state onboarding hint, rendered as individually
     // clickable segments (the same HintZone pattern as the minibuffer hint
-    // and the persistent notices below). Only while no session exists —
-    // the with-sessions modeline never shows these.
+    // and the persistent notices below). Only while no session exists, or
+    // while an archived session is selected (its way back to the list).
     let empty_hint_segments: &[(&str, KeyAction)] =
         if s.is_none() && app.list_items().is_empty() && status.is_empty() {
             &[
@@ -13268,6 +13268,12 @@ fn render_modeline(f: &mut Frame, area: Rect, app: &mut App) {
                 ("[?] help", KeyAction::ToggleHelp),
                 ("[C-x x] palette", KeyAction::OpenCommandPalette),
                 ("[t]our", KeyAction::StartTutorial),
+            ]
+        } else if s.is_some_and(|s| s.archived) && status.is_empty() {
+            // Restart is the other way back; say both so neither is hidden.
+            &[
+                ("archived: [C-x U] unarchive", KeyAction::Unarchive),
+                ("[RET] restart", KeyAction::FocusView),
             ]
         } else {
             &[]
@@ -14954,6 +14960,8 @@ emacs keymap (default; CONSTRUCT_KEYMAP=vim for vim profile)
     [C-x f]               fork selected session (pick a turn or now, then harness)
     [Tab] (on list)       focus lineage section
     [C-x k] [m]           on a fork: merge result into parent and archive
+    [C-x U]               unarchive selected session (back in list; [RET] restarts it)
+    [RET] on N archived   show/hide that section's archived sessions ([/archived])
     [C-c C-c]             interrupt
 
   scrollback
@@ -15030,6 +15038,8 @@ vim keymap (CONSTRUCT_KEYMAP=vim; unset for emacs profile)
     [f]                   fork selected session (pick a turn or now, then harness)
     [Tab] (on list)       focus lineage section
     [m]                   merge the selected fork (take result, or discard)
+    [C-x U]               unarchive selected session (back in list; [RET] restarts it)
+    [RET] on N archived   show/hide that section's archived sessions ([/archived])
     [C-c]                 interrupt
 
   scrollback

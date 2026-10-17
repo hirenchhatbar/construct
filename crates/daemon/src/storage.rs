@@ -1772,8 +1772,9 @@ impl Storage {
 
     /// Remove the entire session directory (meta + transcript + worktree).
     /// Idempotent: missing directory is not an error.
-    /// When a session was archived, as Unix ms (spec 0223). Kept beside
-    /// `meta.json` rather than in it so the wire summary stays unchanged.
+    /// When a session was last archived or unarchived, as Unix ms (spec
+    /// 0223). Kept beside `meta.json` rather than in it so the wire summary
+    /// stays unchanged.
     pub fn archived_at_ms(&self, id: &str) -> Option<i64> {
         std::fs::read_to_string(self.session_dir(id).join("archived_at"))
             .ok()?

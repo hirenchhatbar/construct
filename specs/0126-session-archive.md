@@ -37,6 +37,15 @@ view `x` button), alongside delete and cancel:
   renders normally and it can be restarted.
 - **Restarting an archived session un-archives it.** Restart brings the session
   back to life and returns it to the active list (the archived flag clears).
+- **Unarchive returns a session to the list without restarting it.** It clears
+  the archived flag and leaves the session stopped; the user restarts it later
+  if they want it running. It is bound to `C-x U` in every client (one chord
+  spelling, per the shared keymap) and offered in the session menu, where
+  "unarchive" means this action, not restart. It does not cascade: archived
+  subagents stay under their parent's archived disclosure, as with restart.
+- **The way back is discoverable.** While an archived session is selected the
+  TUI modeline names both ways back (unarchive and restart) with their keys,
+  and the help screen lists the unarchive chord and the archived-row toggle.
 - **The daemon does not auto-resume archived sessions on startup.** They stay
   terminated across daemon restarts until an explicit restart.
 - **Archived state is persisted** on the session record so it survives daemon
@@ -73,9 +82,12 @@ single reflexive keystroke once a non-destructive option shares the prompt.
   orthogonal to run state: archive is about list visibility and auto-resume
   suppression, not a new terminal `SessionState`. Startup auto-resume must keep
   skipping archived sessions regardless of their state.
-- Restart is the canonical un-archive path; if a separate explicit "unarchive
-  without restarting" action is ever added, it must also clear the flag and
-  re-list the session.
+- Unarchive and restart are both un-archive paths, and both must clear the
+  persisted flag and the in-memory archive intent and re-list the session.
+  Only restart respawns the adapter.
+- An unarchived, still-stopped session is a candidate for retention's
+  auto-archive again, so unarchive restarts its idle clock (see
+  [0223-session-retention-archive-then-delete](0223-session-retention-archive-then-delete.md)).
 - Clients are responsible for filtering archived sessions out of their list view
   (the daemon still includes them in the session list so a client can show them
   on demand and render their history). A client without archive support will show

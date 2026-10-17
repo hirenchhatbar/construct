@@ -10463,6 +10463,23 @@ impl App {
         self.sync_active_window_selection();
     }
 
+    /// Put the selected archived session back in the active list, still
+    /// stopped; Enter on it then offers the restart (spec 0126).
+    async fn unarchive_selected(&mut self) {
+        let Some(id) = self
+            .selected_session()
+            .filter(|s| s.archived)
+            .map(|s| s.id.clone())
+        else {
+            self.set_status("unarchive: selected session is not archived".into());
+            return;
+        };
+        match self.client.unarchive(&id).await {
+            Ok(()) => self.set_status(format!("unarchived {} — [RET] restarts it", short_id(&id))),
+            Err(e) => self.set_status(format!("unarchive failed: {e}")),
+        }
+    }
+
     fn is_collapsed_ungrouped_archive_row(item: &ListItem) -> bool {
         matches!(
             item,
@@ -14282,6 +14299,7 @@ impl App {
                 self.step_list_stop(-1, false).await;
             }
             NextAttention => self.select_next_attention(),
+            Unarchive => self.unarchive_selected().await,
             Refresh => {
                 self.refresh_sessions().await;
                 self.transcript_session = None;
@@ -38528,6 +38546,33 @@ mod tests {
                     && p.get("session_id").and_then(|v| v.as_str()) == Some("s1")
             ),
             "clicking y should archive the session, got {calls:?}"
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn unarchive_chord_relists_without_restart() {
+        let mut archived = summary_with_kind(construct_protocol::SessionKind::User);
+        archived.archived = true;
+        archived.state = construct_protocol::SessionState::Done;
+        let (mut app, _dir, server, mut calls) = choice_click_app(vec![archived]).await;
+        app.select_session("s1".into());
+
+        app.run_action(KeyAction::Unarchive).await;
+
+        let calls = drain_calls(&mut calls);
+        assert!(
+            calls.iter().any(
+                |(m, p)| m == construct_protocol::ipc_method::SESSION_UNARCHIVE
+                    && p.get("session_id").and_then(|v| v.as_str()) == Some("s1")
+            ),
+            "C-x U should unarchive the session, got {calls:?}"
+        );
+        assert!(
+            !calls
+                .iter()
+                .any(|(m, _)| m == construct_protocol::ipc_method::SESSION_RESTART),
+            "C-x U must not restart the adapter, got {calls:?}"
         );
         server.abort();
     }

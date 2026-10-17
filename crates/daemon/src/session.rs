@@ -5487,6 +5487,39 @@ impl SessionManager {
         Ok(())
     }
 
+    /// Return an archived session to the active list without respawning its
+    /// adapter; it stays in whatever terminal state archive left it in, ready
+    /// for a later `restart`. Unlike archive, does not cascade: restart
+    /// doesn't either, so archived subagents stay under the parent's
+    /// archived disclosure. No-op for a session that isn't archived.
+    pub async fn unarchive(&self, id: &str) -> Result<()> {
+        let entry = self
+            .get_entry(id)
+            .await
+            .ok_or_else(|| anyhow!("session not found: {id}"))?;
+        let snapshot = {
+            let mut s = entry.summary.write().await;
+            if !s.archived {
+                return Ok(());
+            }
+            s.archived = false;
+            entry.archived.store(false, Ordering::SeqCst);
+            s.clone()
+        };
+        self.storage.save_summary(&snapshot)?;
+        // Re-stamped so the retention sweep's idle clock restarts here instead
+        // of re-archiving a long-idle session on its next pass (spec 0223).
+        let _ = self
+            .storage
+            .set_archived_at_ms(id, chrono::Utc::now().timestamp_millis());
+        let _ = self
+            .broadcast
+            .send(BroadcastMsg::State(StateNotificationPayload {
+                session: snapshot,
+            }));
+        Ok(())
+    }
+
     /// Persist the terminal outcome of a fork. Archiving remains a
     /// separate primitive so callers can inject a result before retiring it.
     pub async fn merge(&self, id: &str, mode: construct_protocol::ForkMergeMode) -> Result<()> {
@@ -9681,6 +9714,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unarchive_relists_without_restarting() {
+        use tempfile::tempdir;
+
+        let tmp = tempdir().expect("tempdir");
+        let storage =
+            Arc::new(crate::storage::Storage::new(tmp.path().join("data")).expect("storage"));
+        let config = Arc::new(crate::config::Config::default());
+        let (mgr, _remote_rx, _restart_rx) =
+            SessionManager::new(storage, config, tmp.path().join("run"))
+                .await
+                .expect("session manager");
+        mgr.sessions.write().await.insert(
+            "s1".into(),
+            synthetic_entry("s1", construct_protocol::SessionKind::User, 0),
+        );
+        mgr.archive("s1").await.expect("archive");
+        let archived_at = mgr.storage.archived_at_ms("s1").expect("archive stamp");
+
+        mgr.unarchive("s1").await.expect("unarchive");
+
+        let entry = mgr.get_entry("s1").await.expect("entry");
+        let s = entry.summary().await;
+        assert!(!s.archived);
+        assert!(!entry.archived.load(Ordering::SeqCst));
+        assert!(s.state.is_terminal(), "unarchive must not restart the adapter");
+        assert!(entry.adapter.lock().await.is_none());
+        assert!(!mgr.storage.load_summary("s1").expect("meta").archived);
+        assert!(mgr.storage.archived_at_ms("s1").expect("stamp") >= archived_at);
+    }
+
+    #[tokio::test]
     async fn archive_marks_terminal_and_keeps_session() {
         use tempfile::tempdir;
 
@@ -10014,6 +10078,7 @@ mod tests {
                     created_at: Utc::now(),
                     position,
                     collapsed,
+                    cwd: None,
                 }),
             }),
         );

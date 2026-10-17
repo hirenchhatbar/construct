@@ -27,6 +27,9 @@ pub enum KeyAction {
     OpenSendInput,
     OpenNewSession,
     OpenDeleteConfirm,
+    /// Return the selected archived session to the active list without
+    /// restarting it (spec 0126). Bound `C-x U` in both profiles.
+    Unarchive,
     OpenRename,
     /// Copy the selected fleet item's stable identity: session id, project id,
     /// or operator name. Intentionally unbound; invoked by `/copy-id` and the
@@ -457,6 +460,7 @@ fn emacs() -> Keymap {
         (Chord(vec![key(KeyCode::PageUp)]), ScrollPageUp),
         // Cycle approval mode on the selected session (smith / future agents).
         (Chord(vec![ctrl('x'), shift('A')]), ToggleAutomode),
+        (Chord(vec![ctrl('x'), shift('U')]), Unarchive),
         // Give the terminal mouse back for native text selection/copy.
         (Chord(vec![ctrl('x'), ch('c')]), ToggleMouseCapture),
         // Paste the local machine's clipboard (ssh bridge aware, spec 0098).
@@ -539,6 +543,7 @@ fn vim() -> Keymap {
         (Chord(vec![ctrl('x'), ch('f')]), OpenFork),
         (Chord(vec![ctrl('x'), ch('z')]), ToggleZoom),
         (Chord(vec![ctrl('x'), shift('A')]), ToggleAutomode),
+        (Chord(vec![ctrl('x'), shift('U')]), Unarchive),
         // Enter from the list focuses the selected session's view;
         // Tab stays unbound for future use.
         (Chord(vec![key(KeyCode::Enter)]), FocusView),
@@ -1048,6 +1053,7 @@ mod tests {
             (ch('f'), KeyAction::OpenFork),
             (ch('z'), KeyAction::ToggleZoom),
             (shift('A'), KeyAction::ToggleAutomode),
+            (shift('U'), KeyAction::Unarchive),
         ] {
             assert_action(&vim, vec![ctrl('x'), second], action);
         }

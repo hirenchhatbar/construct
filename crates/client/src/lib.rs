@@ -1040,11 +1040,24 @@ impl Client {
         Ok(())
     }
     /// Archive a session: terminate its adapter but keep history/worktree and
-    /// hide it from the list by default. Reversed by [`Self::restart`].
+    /// hide it from the list by default. Reversed by [`Self::unarchive`] or
+    /// [`Self::restart`].
     pub async fn archive(&self, id: &str) -> Result<()> {
         let _: serde_json::Value = self
             .request(
                 ipc_method::SESSION_ARCHIVE,
+                &SessionIdParams {
+                    session_id: id.to_string(),
+                },
+            )
+            .await?;
+        Ok(())
+    }
+    /// Return an archived session to the active list without restarting it.
+    pub async fn unarchive(&self, id: &str) -> Result<()> {
+        let _: serde_json::Value = self
+            .request(
+                ipc_method::SESSION_UNARCHIVE,
                 &SessionIdParams {
                     session_id: id.to_string(),
                 },
