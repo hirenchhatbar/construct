@@ -150,12 +150,20 @@ pub(crate) struct FrameSlide {
     /// Footer rows above the minibuffer, left over while the block slides back
     /// down after a tall footer closed. Cleared, never drawn into.
     gap: Option<Rect>,
+    /// A creation picker floating over the bottom of the block instead of
+    /// sliding it. Same rect as `minibuffer` while one is open.
+    overlay: Option<Rect>,
 }
 
 impl FrameSlide {
     /// The pointer's position in the block's coordinates, or `None` when it is
     /// over the footer and so over nothing the block drew.
     fn main_block_pos(&self, pos: Option<(u16, u16)>) -> Option<(u16, u16)> {
+        let pos = pos.filter(|&(x, y)| {
+            !self
+                .overlay
+                .is_some_and(|r| r.contains(Position { x, y }))
+        });
         if self.shift.delta == 0 {
             return pos;
         }
@@ -168,7 +176,9 @@ impl FrameSlide {
 /// Split `area` into the sliding main block and the footer strip below it,
 /// advancing the slide animation toward whatever the footer now demands.
 pub(crate) fn frame_layout(app: &mut App, area: Rect, modeline_h: u16, now: Instant) -> FrameSlide {
-    let demand = compute_prompt_height(app, area.height);
+    let picker_h = compute_prompt_height(app, area.height);
+    let overlay = prompt_overlays_main_block(app);
+    let demand = if overlay { 1 } else { picker_h };
     if app.resizing_minibuffer_panel.is_some() {
         app.main_slide.snap_to(demand.saturating_sub(1));
     } else {
@@ -177,7 +187,17 @@ pub(crate) fn frame_layout(app: &mut App, area: Rect, modeline_h: u16, now: Inst
     if app.main_slide.is_animating(now) {
         app.request_tick_redraw();
     }
-    let slide = frame_slide_geometry(area, modeline_h, demand, app.main_slide.offset(now));
+    let mut slide = frame_slide_geometry(area, modeline_h, demand, app.main_slide.offset(now));
+    if overlay {
+        let h = picker_h.min(area.height);
+        let rect = Rect {
+            y: area.bottom() - h,
+            height: h,
+            ..area
+        };
+        slide.minibuffer = rect;
+        slide.overlay = Some(rect);
+    }
     // Published before the block renders so anything placing the hardware
     // cursor mid-render knows how far the block will travel.
     app.layout.main_slide = slide.shift.delta;
@@ -223,6 +243,7 @@ fn frame_slide_geometry(area: Rect, modeline_h: u16, demand: u16, offset: f32) -
             height: prompt_y - footer_y,
             ..area
         }),
+        overlay: None,
     }
 }
 
@@ -492,6 +513,15 @@ pub fn render(f: &mut Frame, app: &mut App) {
     render_fleet_tally_panel(f, app);
     render_tutorial_card(f, app);
     render_harness_unavailable_tooltip(f, app);
+    // A floating picker covers the modeline, so its hits under the pointer are
+    // hidden and must not raise tooltips over the picker.
+    if slide
+        .overlay
+        .zip(screen_mouse)
+        .is_some_and(|(r, (x, y))| r.contains(Position { x, y }))
+    {
+        app.mouse_pos = None;
+    }
     render_modeline_approval_mode_tooltip(f, app);
     render_modeline_context_gauge_tooltip(f, app);
     render_modeline_version_notice_tooltip(f, app);
@@ -499,6 +529,7 @@ pub fn render(f: &mut Frame, app: &mut App) {
     render_modeline_theme_tooltip(f, app);
     render_modeline_border_tooltip(f, app);
     render_modeline_brand_tooltip(f, app);
+    app.mouse_pos = screen_mouse;
 
     finish_frame(f, app);
 }
@@ -14213,6 +14244,20 @@ pub fn compute_prompt_height(app: &App, total_h: u16) -> u16 {
     minibuffer_panel_height(app.minibuffer_panel_h, total_h)
 }
 
+/// The creation pickers float over the bottom of the main block instead of
+/// sliding it (spec 0112): they are open for a keystroke or two, so moving the
+/// whole screen for them costs more than covering a few rows of output.
+pub(crate) fn prompt_overlays_main_block(app: &App) -> bool {
+    matches!(
+        app.prompt.as_ref().map(|m| &m.intent),
+        Some(
+            PromptIntent::NewSessionHarness
+                | PromptIntent::ForkSessionHarness { .. }
+                | PromptIntent::ForkTurnPick { .. }
+        )
+    )
+}
+
 fn minibuffer_panel_height(preferred: Option<u16>, total_h: u16) -> u16 {
     // ~12 rows of panel + 1 row for the top border by default. The minimum
     // floor leaves room for the modeline + at least one row of the main view
@@ -14266,6 +14311,10 @@ fn render_prompt(f: &mut Frame, area: Rect, app: &mut App) {
     app.layout.prompt_harness_hits.clear();
     app.layout.prompt_choice_hits.clear();
     app.layout.prompt_turn_hits.clear();
+    // A floating picker paints over the block's rows, so blank them first.
+    if prompt_overlays_main_block(app) {
+        f.render_widget(Clear, area);
+    }
 
     // Minibuffer panel: events above, input row at the bottom.
     if matches!(

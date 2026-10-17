@@ -12,8 +12,8 @@ strip, the lineage section, any playbook popups — is always laid out at the si
 it has when the footer occupies a single row. That size does not depend on how
 tall the footer actually is.
 
-When the footer grows beyond one row (the minibuffer panel, the multi-row harness
-picker), the block keeps that size and **slides up** by the footer's extra rows.
+When the footer grows beyond one row (the minibuffer panel), the block keeps that
+size and **slides up** by the footer's extra rows.
 Rows that leave the top edge are cropped away; the bottom of the block stays
 flush with the modeline, so the newest terminal output remains on screen. The
 modeline stays pinned directly above the footer and never slides behind it.
@@ -21,6 +21,15 @@ modeline stays pinned directly above the footer and never slides behind it.
 The slide is animated, matching the playbook view's slide-aside, and snaps
 without easing while the user drags the panel's border so the block tracks the
 pointer.
+
+**Creation pickers float instead of sliding.** The new-session harness picker,
+the fork harness picker and the fork turn picker are open for a keystroke or
+two, so moving the whole screen for them is more disruptive than covering a few
+rows. They paint over the bottom of the block (and the modeline) at their full
+height while the block stays put. A floating picker owns every pointer event
+over its rows: nothing it covers — a pane, a mouse-grabbing child, the
+modeline — receives clicks, motion, hover or tooltips through it. A drag
+already in flight when the pointer crosses it keeps its owner.
 
 Consequences for the rest of the client:
 
@@ -60,6 +69,9 @@ reveals read as the same gesture.
 - The top of the block is not reachable while a tall footer is open. That is the
   accepted trade: the bottom of a terminal view is where the live output is, so
   the top is the cheaper end to lose.
+- A floating creation picker hides the newest rows of output while it is open.
+  That is accepted because it closes on the next choice; a long-lived footer
+  like the minibuffer panel must keep sliding so live output stays visible.
 - Drag gestures on geometry that is only partly on screen (a scrollbar whose top
   scrolled off, a split divider) stay proportional to the full geometry, not the
   visible remainder.
@@ -84,3 +96,6 @@ reveals read as the same gesture.
   stays blank rather than showing stale rows.
 - A session row that scrolled off the top is not clickable, and clicking the
   top visible row selects the session actually painted there.
+- `new` opens the harness picker: nothing moves; the picker covers the bottom
+  rows of the panes. Clicking a picker row over a full-screen harness picks
+  that harness instead of clicking into the harness.

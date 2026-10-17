@@ -11937,6 +11937,21 @@ impl App {
         }
     }
 
+    /// A construct-owned drag (resize, scrollbar, text selection) is under way
+    /// and must keep receiving events until its button comes back up.
+    fn mouse_drag_in_flight(&self) -> bool {
+        self.resizing_list.is_some()
+            || self.resizing_minibuffer_panel.is_some()
+            || self.resizing_matrix_rain.is_some()
+            || self.resizing_main_window.is_some()
+            || self.resizing_playbook_popup.is_some()
+            || self.resizing_lineage.is_some()
+            || self.dragging_terminal_scrollbar.is_some()
+            || self.dragging_list_scrollbar.is_some()
+            || self.dragging_lineage_scrollbar.is_some()
+            || self.text_selection.is_some()
+    }
+
     /// A Shift-held left-button gesture — the user asking for construct's own
     /// text selection instead of the child's mouse handling.
     ///
@@ -12138,6 +12153,21 @@ impl App {
                 }
             }
         }
+        // A creation picker floats over the bottom of the main block (spec
+        // 0112), so it owns every event over its rows — otherwise the covered
+        // pane, its mouse-grabbing child or the modeline takes the click.
+        // In-flight drags finish under their own owner.
+        if !self.mouse_drag_in_flight() {
+            if let Some(area) = self.layout.prompt_area.filter(|area| {
+                crate::ui::prompt_overlays_main_block(self)
+                    && Self::rect_contains(*area, ev.column, ev.row)
+            }) {
+                if matches!(ev.kind, MouseEventKind::Up(MouseButton::Left)) {
+                    self.click_prompt(area, ev.column, ev.row).await;
+                }
+                return;
+            }
+        }
         // If the cursor is over a pane whose child has grabbed the mouse
         // (e.g. Claude Code in fullscreen), forward the event into that PTY and
         // stop — construct becomes a transparent mouse pipe for the pane, so
@@ -12174,16 +12204,7 @@ impl App {
             // An open popup owns the mouse, or its rows scroll the child
             // underneath instead of the menu.
             && self.route_menu.is_none()
-            && self.resizing_list.is_none()
-            && self.resizing_minibuffer_panel.is_none()
-            && self.resizing_matrix_rain.is_none()
-            && self.resizing_main_window.is_none()
-            && self.resizing_playbook_popup.is_none()
-            && self.resizing_lineage.is_none()
-            && self.dragging_terminal_scrollbar.is_none()
-            && self.dragging_list_scrollbar.is_none()
-            && self.dragging_lineage_scrollbar.is_none()
-            && self.text_selection.is_none()
+            && !self.mouse_drag_in_flight()
             && self.mouse_over_tutorial_card(ev.column, ev.row);
         let playbook_is_top_modal = self.layout.modal_owner == Some(ModalOwner::Playbook)
             || (self.layout.modal_owner.is_none()
@@ -39912,6 +39933,39 @@ mod tests {
             list_area.height - (panel_h - 1),
             "…showing that many fewer rows"
         );
+    }
+
+    /// Spec 0112: the new-session picker floats over the block instead of
+    /// sliding it, and owns the rows it covers.
+    #[tokio::test]
+    async fn opening_the_harness_picker_floats_over_the_block() {
+        let (mut app, _dir, _server) = two_session_app().await;
+        let draw = |app: &mut App| {
+            let backend = ratatui::backend::TestBackend::new(80, 40);
+            let mut terminal = ratatui::Terminal::new(backend).expect("terminal");
+            terminal.draw(|f| crate::ui::render(f, app)).expect("draw");
+        };
+
+        draw(&mut app);
+        let pane_sizes = app.window_pane_sizes.clone();
+        let list_area = app.layout.list_area.expect("list pane rendered");
+
+        app.prompt = Some(Prompt {
+            prompt: String::new(),
+            input: String::new(),
+            cursor: 0,
+            intent: PromptIntent::NewSessionHarness,
+            error: None,
+        });
+        draw(&mut app);
+
+        assert_eq!(app.layout.main_slide, 0, "the block did not move");
+        assert_eq!(app.layout.list_area, Some(list_area));
+        assert_eq!(app.window_pane_sizes, pane_sizes);
+        let picker = app.layout.prompt_area.expect("picker area");
+        assert_eq!(picker.height, crate::ui::compute_prompt_height(&app, 40));
+        assert_eq!(picker.bottom(), 40, "the input row stays on the last row");
+        assert!(picker.y < list_area.bottom(), "the picker covers the block");
     }
 
     /// Spec 0074: a `@{session:…}` chip in a widget resolves live status from
